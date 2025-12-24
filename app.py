@@ -299,7 +299,7 @@ if uploaded_files:
             st.session_state['uploaded_file_names'] = curr_files
             st.success(f"✅ {len(df)}명 로드 완료")
 
-# --- 5. [v9.0] 3단계 우선순위 배정 (고득점 -> 일반 -> 전출쿠션) ---
+# --- 5. [v9.2] 3단계 우선순위 배정 (NameError 수정 버전) ---
 def run_assignment(df, class_names):
     df = df.copy()
     conflict_pairs, _, _ = build_conflict_map(df)
@@ -324,17 +324,17 @@ def run_assignment(df, class_names):
     # 1. 고득점자 (점수 균형)
     group_1 = df[high_score_mask].sort_values(by=['conflict_degree', '곤란도점수', '이름'], ascending=[False, False, True])
     for _, row in group_1.iterrows():
-        assign_with_priority(row, classes, conflict_pairs, priority_mode="SCORE_BALANCE")
+        assign_with_priority(row, classes, conflict_pairs, priority_mode="SCORE_BALANCE", df=df)
         
     # 2. 일반 학생 (인원 & 성비 균형)
     group_2 = df[regular_mask].sort_values(by=['conflict_degree', '성별', '이름'], ascending=[False, True, True])
     for _, row in group_2.iterrows():
-        assign_with_priority(row, classes, conflict_pairs, priority_mode="REAL_COUNT_BALANCE")
+        assign_with_priority(row, classes, conflict_pairs, priority_mode="REAL_COUNT_BALANCE", df=df)
         
     # 3. 전출생 (쿠션)
     group_3 = df[transfer_mask].sort_values(by=['conflict_degree'], ascending=[False])
     for _, row in group_3.iterrows():
-        assign_with_priority(row, classes, conflict_pairs, priority_mode="CUSHION_BALANCE")
+        assign_with_priority(row, classes, conflict_pairs, priority_mode="CUSHION_BALANCE", df=df)
         
     # 결과 반영
     for c_name, c_info in classes.items():
@@ -343,7 +343,7 @@ def run_assignment(df, class_names):
             
     return df
 
-def assign_with_priority(row, classes, conflict_pairs, priority_mode):
+def assign_with_priority(row, classes, conflict_pairs, priority_mode, df):
     s_id = row['Internal_ID']
     s_score = row['곤란도점수']
     s_gender = row['성별']
@@ -357,6 +357,9 @@ def assign_with_priority(row, classes, conflict_pairs, priority_mode):
             
     class_costs = []
     
+    # 전출생 리스트 미리 확보 (REAL_COUNT_BALANCE에서 사용)
+    transfer_ids = set(df[df['is_transfer']].Internal_ID.values)
+
     for c_name, c_info in classes.items():
         cost = 0
         
@@ -366,19 +369,22 @@ def assign_with_priority(row, classes, conflict_pairs, priority_mode):
             
         # 2. 비용 계산
         if priority_mode == "SCORE_BALANCE":
+            # 점수 분산이 최우선 (점수 낮은 곳 선호)
             cost += (c_info['score_sum'] * 1000)
             if s_reason and s_reason in c_info['reasons']: cost += 500
-            cost += (len(c_info['students']) * 10) # 인원도 살짝 고려
+            cost += (len(c_info['students']) * 10) 
             
         elif priority_mode == "REAL_COUNT_BALANCE":
-            # 실제 인원 수 균형
-            real_cnt = len([sid for sid in c_info['students'] if sid not in df[df['is_transfer']].Internal_ID.values])
+            # 실제 인원 수 균형 (전출생 제외한 인원)
+            real_cnt = len([sid for sid in c_info['students'] if sid not in transfer_ids])
             cost += (real_cnt * 10000)
-            # 성별 균형
+            # 성별 균형 (실제 성별) - 남여 섞이게
+            # 여기서는 단순하게 해당 성별이 적은 곳으로 유도
             g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
             cost += (g_cnt * 1000)
             
         elif priority_mode == "CUSHION_BALANCE":
+            # 전체 인원(Total Count) 맞추기
             cost += (len(c_info['students']) * 1000)
             g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
             cost += (g_cnt * 500)
@@ -420,7 +426,7 @@ if 'assigned_data' in st.session_state:
     conflict_pairs, separation_pairs, _ = build_conflict_map(df)
     current_map = df.set_index('Internal_ID')['배정반'].to_dict()
     
-    # [수정] 이동 작업대 정렬을 위한 gender_rank 복구
+    # [수정] 이동 작업대용 정렬 변수 복구
     df['gender_rank'] = df['성별'].map({'여': 1, '남': 2}).fillna(3)
     df['display_icon'] = ""
     
