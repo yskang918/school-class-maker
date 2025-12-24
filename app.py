@@ -1,0 +1,611 @@
+import streamlit as st
+import pandas as pd
+import io
+import os
+import re
+import time
+
+# --- 1. [테마 및 라이브러리 설정] ---
+if not os.path.exists(".streamlit"):
+    os.makedirs(".streamlit")
+
+try:
+    with open(".streamlit/config.toml", "w", encoding="utf-8") as f:
+        f.write("""[theme]
+primaryColor = "#5DADEC"
+backgroundColor = "#F0F2F6" 
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#262730"
+font = "sans serif"
+""")
+except:
+    pass
+
+try:
+    import xlsxwriter
+except ImportError:
+    st.error("⚠️ 라이브러리 설치 필요: 터미널에 'pip install xlsxwriter' 입력")
+    st.stop()
+
+# 사이드바 없이 넓은 화면 사용
+st.set_page_config(page_title="반편성 프로그램", layout="wide", initial_sidebar_state="collapsed") 
+
+# CSS: 디자인 디테일 설정
+st.markdown("""
+<style>
+    .stApp { background-color: #F4F6F9; }
+    .block-container { 
+        padding-top: 2rem; 
+        padding-bottom: 5rem; 
+        padding-left: 1rem; 
+        padding-right: 1rem; 
+        max-width: 100%;
+    }
+
+    /* 점수판 헤더 */
+    .class-header {
+        width: 100%;
+        margin-bottom: 6px;
+        background-color: white;
+        border-top: 4px solid #5DADEC;
+        border-radius: 6px;
+        padding: 6px 2px;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    
+    .class-title { 
+        font-size: 16px; font-weight: 800; color: #333; 
+        margin: 0; line-height: 1.2; 
+        white-space: nowrap;
+    }
+    .real-count-tag { font-size: 13px; color: #555; font-weight: 600; margin-left: 2px;}
+    .score-text { font-size: 20px; font-weight: 900; color: #E65100; line-height: 1.0; margin: 3px 0; }
+    
+    /* 인원수 텍스트 */
+    .count-text { 
+        font-size: 11px; color: #333; font-weight: 700; 
+        margin: 2px 0 0 0; line-height: 1.2; white-space: nowrap;
+    }
+    .count-sub {
+        font-size: 10px; color: #757575; font-weight: 600;
+        display: block; margin-top: 1px; white-space: nowrap;
+    }
+    
+    /* 뱃지 */
+    .badge-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 2px; margin-top: 3px; }
+    .stat-badge {
+        background-color: #F3E5F5; color: #7B1FA2; border: 1px solid #E1BEE7; 
+        border-radius: 4px; padding: 1px 3px; font-size: 9px; font-weight: bold;
+    }
+    .transfer-badge {
+        background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9;
+        border-radius: 4px; padding: 1px 3px; font-size: 9px; font-weight: bold;
+    }
+    
+    /* 그리드 및 카드 */
+    .student-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr; 
+        gap: 2px;
+    }
+    .student-card {
+        width: 100%; border-radius: 4px; 
+        padding: 3px 1px;
+        text-align: center; box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+        border: 1px solid rgba(0,0,0,0.05); 
+        line-height: 1.1;
+        overflow: hidden;
+    }
+    .empty-card { width: 100%; height: 100%; min-height: 25px; background: transparent; border: none; }
+    
+    .bg-male { background-color: #E1F5FE; border-left: 3px solid #29B6F6; }
+    .bg-female { background-color: #FCE4EC; border-left: 3px solid #EC407A; }
+    .card-conflict { border: 2px solid #FF3D00 !important; background-color: #FFF3E0 !important; }
+    
+    .std-name { 
+        font-size: 13px; font-weight: 800; color: #263238; margin: 0; 
+        display: flex; justify-content: center; align-items: center; gap: 1px;
+        padding-bottom: 1px;
+        white-space: nowrap;
+    }
+    .prev-class { font-size: 10px; color: #90A4AE; font-weight: 600; margin-left: 1px; } 
+    .std-note { 
+        font-size: 10px; color: #D81B60; font-weight: 700; 
+        display: block; margin-top: 1px; 
+        overflow: hidden; white-space: nowrap; text-overflow: ellipsis; 
+        line-height: 1.1;
+    }
+    .tag-transfer-front { 
+        background-color: #ffffff; color: #1565C0; border: 1px solid #1565C0; 
+        padding: 0px 1px; border-radius: 2px; font-size: 9px; font-weight: bold; 
+        margin-right: 1px; vertical-align: middle;
+    }
+
+    div[data-testid="stDataEditor"] { zoom: 1.1; }
+    div[data-testid="stDataEditor"] th { font-weight: 800 !important; color: #111 !important; font-size: 13px !important; }
+    div[data-testid="stDataEditor"] td { font-weight: 600 !important; color: #333 !important; font-size: 13px !important;}
+    
+    .header-title-text {
+        font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🏫 반편성 프로그램")
+
+# --- 2. 상단 컨트롤 패널 ---
+col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
+
+with col_set:
+    target_classes = st.number_input("학급 수 설정", 1, 15, 4)
+    class_names = ["가", "나", "다", "라", "마", "바", "사", "아", "자", "차", "카", "타", "파", "하"]
+    target_class_names = class_names[:target_classes]
+
+with col_down:
+    template_cols = ["현재반", "번호", "이름", "성별", "곤란도", "곤란도점수", "비고(쌍생아/전출)", "쌍생아_이름", "쌍생아_반", "쌍생아반편성", "분리희망학생_이름", "분리희망학생_반", "분리희망학생_번호"]
+    
+    def get_template_excel():
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            pd.DataFrame(columns=template_cols).to_excel(writer, index=False, sheet_name='명단작성')
+            ws = writer.sheets['명단작성']
+            wb = writer.book
+            
+            header_format = wb.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center', 'fg_color': '#DCE6F1', 'border': 1})
+            
+            for i, col in enumerate(template_cols):
+                ws.write(0, i, col, header_format)
+                ws.set_column(i, i, len(col) + 12)
+            
+            val_int = {'validate': 'integer', 'criteria': '>', 'value': 0, 'error_title': '입력 오류', 'error_message': '숫자만 입력할 수 있습니다. (예: 1, 2, 3)'}
+            
+            col_rules = {}
+            for c in [0, 1, 5, 8, 11, 12]: col_rules[c] = val_int.copy()
+            
+            val_list_reason = {'validate': 'list', 'source': ["학습부진", "교우관계", "생활지도", "학부모민원", "특수학급", "완전통합", "학교폭력", "다문화"]}
+            col_rules[4] = val_list_reason
+            
+            val_list_note = {'validate': 'list', 'source': ["쌍생아", "전출예정"], 'error_message': '목록에 있는 값만 선택해주세요.'}
+            col_rules[6] = val_list_note
+            
+            val_list_twin = {'validate': 'list', 'source': ["분반희망", "합반희망"], 'error_message': '목록에 있는 값만 선택해주세요.'}
+            col_rules[9] = val_list_twin
+            
+            msgs = {
+                0: "현재 학급을\n숫자로 입력하세요.\n(예: 1)",
+                1: "학생 번호를\n숫자로 입력하세요.\n(예: 15)",
+                3: "남/여 중\n하나를 입력하세요.",
+                5: "1~5까지\n숫자를 입력하세요.",
+                6: "쌍생아 또는\n전출예정을\n선택하세요.",
+                8: "쌍둥이 형제의\n반(숫자)을 입력하세요.",
+                9: "분반/합반 여부를\n목록에서 선택하세요.",
+                11: "피하고 싶은 학생의\n반(숫자)을 입력하세요.",
+                12: "피하고 싶은 학생의\n번호(숫자)를 입력하세요."
+            }
+            
+            for c, msg in msgs.items():
+                if c not in col_rules: col_rules[c] = {'validate': 'any'}
+                col_rules[c]['input_title'] = '입력 안내'
+                col_rules[c]['input_message'] = msg
+            
+            for c, rule in col_rules.items():
+                col_char = chr(65 + c)
+                ws.data_validation(f"{col_char}2:{col_char}1000", rule)
+
+            ws.freeze_panes(1, 0)
+            
+        return output.getvalue()
+    
+    st.write("") 
+    st.write("")
+    st.download_button("📥 기초명단 양식", get_template_excel(), '반편성_양식.xlsx', type="primary", use_container_width=False)
+
+# --- 3. 데이터 처리 함수 ---
+def clean_text(text): return re.sub(r'[^가-힣a-zA-Z0-9]', '', str(text)) if pd.notna(text) else ""
+def clean_number(val):
+    if pd.isna(val) or str(val).strip() == "": return ""
+    try: return str(int(float(val)))
+    except: return str(val).strip()
+
+def build_conflict_map(df):
+    lookup = {}
+    conflict_pairs = set()
+    
+    for _, r in df.iterrows():
+        lookup[r['Internal_ID']] = r 
+        lookup[f"{r['이름']}"] = r['Internal_ID']
+        lookup[f"{r['이름']}_{r['현재반']}_{r['번호']}"] = r['Internal_ID']
+
+    # 1. 분리희망
+    for _, r in df.iterrows():
+        my_id = r['Internal_ID']
+        t_name = r['분리희망학생_이름']
+        if t_name:
+            t_key = f"{t_name}_{r['분리희망학생_반']}_{r['분리희망학생_번호']}"
+            target_id = lookup.get(t_key)
+            if not isinstance(target_id, str): target_id = lookup.get(t_name)
+            if isinstance(target_id, str) and target_id != my_id:
+                conflict_pairs.add(frozenset([my_id, target_id]))
+    
+    # 2. 동명이인(전체이름 or 이름만) 분리
+    def get_given_name(full_name):
+        return full_name[1:] if len(full_name) >= 2 else full_name
+
+    given_name_map = {} 
+    for _, r in df.iterrows():
+        g_name = get_given_name(r['이름'])
+        if g_name:
+            if g_name not in given_name_map: given_name_map[g_name] = []
+            given_name_map[g_name].append(r['Internal_ID'])
+            
+    for g_name, ids in given_name_map.items():
+        if len(ids) > 1:
+            for i in range(len(ids)):
+                for j in range(i + 1, len(ids)):
+                    conflict_pairs.add(frozenset([ids[i], ids[j]]))
+
+    return conflict_pairs, lookup
+
+# --- 4. 파일 업로드 ---
+st.markdown("---")
+uploaded_files = st.file_uploader("엑셀 파일 선택 (여러 개 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+
+if uploaded_files:
+    curr_files = sorted([f.name for f in uploaded_files])
+    if 'uploaded_file_names' not in st.session_state or st.session_state['uploaded_file_names'] != curr_files:
+        all_dfs = []
+        for file in uploaded_files:
+            try:
+                df = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+                df.columns = df.columns.str.replace(' ', '').str.strip()
+                all_dfs.append(df)
+            except Exception as e: st.error(f"오류: {e}")
+
+        if all_dfs:
+            df = pd.concat(all_dfs, ignore_index=True)
+            
+            rename_map = {
+                '비고(쌍생아/전출)': '비고',
+                '비고(쌍생아/전출/동명이인)': '비고', 
+                '비고(쌍생아/전출예정)': '비고'
+            }
+            df.rename(columns=rename_map, inplace=True)
+            
+            df['이름'] = df['이름'].apply(clean_text)
+            
+            num_cols = ['현재반', '번호', '분리희망학생_반', '분리희망학생_번호', '쌍생아_반']
+            if '쌍생아_번호' in df.columns: num_cols.append('쌍생아_번호')
+            
+            for c in num_cols:
+                df[c] = df[c].apply(clean_number) if c in df.columns else ""
+                
+            for c in ['분리희망학생_이름', '쌍생아_이름', '쌍생아반편성']:
+                df[c] = df[c].apply(clean_text) if c in df.columns else ""
+            
+            if '곤란도점수' in df.columns: df['곤란도점수'] = pd.to_numeric(df['곤란도점수'], errors='coerce').fillna(0)
+            elif '주의점수' in df.columns: df['곤란도점수'] = pd.to_numeric(df['주의점수'], errors='coerce').fillna(0)
+            else: df['곤란도점수'] = 0
+            
+            if '곤란도' in df.columns: df['곤란도'] = df['곤란도'].fillna("")
+            elif '주의사유' in df.columns: df['곤란도'] = df['주의사유'].fillna("")
+            else: df['곤란도'] = ""
+            
+            df['비고'] = df['비고'].fillna("") if '비고' in df.columns else ""
+            
+            df['is_transfer'] = df['비고'].str.contains('전출', na=False)
+            df['Internal_ID'] = [f"ID_{i}" for i in range(len(df))]
+            
+            st.session_state['student_data'] = df
+            st.session_state['uploaded_file_names'] = curr_files
+            st.success(f"✅ {len(df)}명 로드 완료")
+
+# --- 5. [강력 균형] 점수 우선 + 동명이인 회피 알고리즘 ---
+def run_assignment(df, class_names):
+    df = df.copy()
+    
+    # 1. 충돌 관계 파악
+    conflict_pairs, _ = build_conflict_map(df)
+    
+    # 2. 반 초기화
+    # classes: { '가': {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set()}, ... }
+    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set()} for c in class_names}
+    
+    # 3. 정렬 전략: 고득점자 우선 배정 (High Score First)
+    # 점수가 높은 학생을 먼저 배정해야 나중에 점수를 맞추기 쉬움
+    # 정렬: 곤란도점수(내림차순) -> 성별(남녀 번갈아 나오게 하면 좋음) -> 충돌여부
+    df = df.sort_values(
+        by=['곤란도점수', '성별', '이름'], 
+        ascending=[False, True, True]
+    ).reset_index(drop=True)
+    
+    # 4. Greedy Allocation
+    for _, row in df.iterrows():
+        s_id = row['Internal_ID']
+        s_score = row['곤란도점수']
+        s_gender = row['성별']
+        
+        # 내 적들(충돌)
+        my_enemies = set()
+        for pair in conflict_pairs:
+            if s_id in pair:
+                my_enemies.update(pair)
+        
+        # 배정 가능한 반 찾기
+        valid_classes = []
+        for c_name, c_info in classes.items():
+            # 충돌 검사: 적이 이 반에 없어야 함
+            if my_enemies.isdisjoint(c_info['conflict_ids']):
+                valid_classes.append(c_name)
+        
+        # 만약 갈 곳이 없으면(매우 드뭄), 모든 반을 후보로 (충돌 감수)
+        if not valid_classes:
+            valid_classes = list(classes.keys())
+            
+        # 최적의 반 선택 (점수가 가장 낮은 반 > 해당 성별 인원이 적은 반)
+        # Sort Key: (Current Score Sum, Current Gender Count, Total Count)
+        # 이렇게 하면 점수가 낮은 곳을 최우선으로 채우고, 점수가 같으면 성별 균형을 맞춤
+        best_class = sorted(
+            valid_classes,
+            key=lambda c: (
+                classes[c]['score_sum'], 
+                classes[c]['m'] if s_gender == '남' else classes[c]['f'],
+                len(classes[c]['students'])
+            )
+        )[0]
+        
+        # 배정
+        df.loc[df['Internal_ID'] == s_id, '배정반'] = best_class
+        classes[best_class]['students'].append(s_id)
+        classes[best_class]['score_sum'] += s_score
+        classes[best_class]['conflict_ids'].add(s_id)
+        if s_gender == '남': classes[best_class]['m'] += 1
+        else: classes[best_class]['f'] += 1
+            
+    return df
+
+st.write("")
+col_btn_start, _ = st.columns([1.5, 8.5]) 
+with col_btn_start:
+    if st.button("🚀 자동 반편성 시작", type="primary", use_container_width=False):
+        if 'student_data' in st.session_state:
+            st.session_state['assigned_data'] = run_assignment(st.session_state['student_data'], target_class_names)
+        else: st.warning("파일을 업로드하세요.")
+
+
+# --- 6. 결과 화면 ---
+if 'assigned_data' in st.session_state:
+    st.divider()
+    
+    df = st.session_state['assigned_data']
+    conflict_pairs, _ = build_conflict_map(df)
+    current_map = df.set_index('Internal_ID')['배정반'].to_dict()
+    
+    df['display_icon'] = ""
+    df['gender_rank'] = df['성별'].map({'여': 1, '남': 2}).fillna(3)
+
+    for idx, row in df.iterrows():
+        s_id = row['Internal_ID']
+        my_cls = row['배정반']
+        icon = ""
+        # 1. 충돌 확인
+        for pair in conflict_pairs:
+            if s_id in pair:
+                others = [x for x in pair if x != s_id]
+                if others and others[0] in current_map and current_map[others[0]] == my_cls:
+                    icon = "⚡" # 충돌 발생 시에만 번개
+                break
+        
+        # 2. 아이콘 (특수학급 빨간네모, 초록체크 모두 제거)
+        # [삭제] 특수 빨간 네모, 초록 체크 코드 삭제됨
+        
+        df.at[idx, 'display_icon'] = icon
+
+    # ==========================================
+    # 1. 시각화 보드
+    # ==========================================
+    col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.8, 1.5, 4.5, 4], gap="small")
+
+    with col_h_1:
+         st.markdown("<div class='header-title-text'>👀 학급별 구성</div>", unsafe_allow_html=True)
+
+    with col_h_2:
+        output = io.BytesIO()
+        export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
+        
+        save_df_full = df.sort_values(['배정반', 'gender_rank', 'is_transfer', '이름'])
+        valid_cols = [c for c in export_cols if c in save_df_full.columns]
+        final_save_df = save_df_full[valid_cols]
+
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            final_save_df.to_excel(writer, index=False, sheet_name='전체')
+            for cls in target_class_names:
+                cls_df = final_save_df[final_save_df['배정반'] == cls]
+                cls_df.to_excel(writer, index=False, sheet_name=f'{cls}반')
+            
+            workbook = writer.book
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                if sheet_name == '전체': target_df = final_save_df
+                else: target_df = final_save_df[final_save_df['배정반'] == sheet_name.replace('반', '')]
+                
+                for i, col in enumerate(target_df.columns):
+                    header_len = len(str(col))
+                    max_data_len = 0
+                    if len(target_df) > 0:
+                        max_data_len = target_df[col].astype(str).map(len).max()
+                    final_width = max(header_len, max_data_len) + 4
+                    worksheet.set_column(i, i, final_width)
+
+        st.download_button("📥 엑셀 저장", output.getvalue(), "반편성_최종.xlsx", type="primary", use_container_width=False)
+
+    with col_h_3:
+        st.markdown("""<div style="margin-top: 10px; font-weight: 600; font-size: 13px; color: #555; white-space: nowrap;">
+            <span style='display:inline-block; margin-right:5px;'>범례:</span>
+            <span style='color:#C2185B; background-color:#FCE4EC; border:1px solid #EC407A; padding: 2px 4px; border-radius:4px;'>■ 여학생</span>
+            <span style='color:#1565C0; background-color:#E3F2FD; border:1px solid #90CAF9; padding: 2px 4px; border-radius:4px; margin-left:3px;'>■ 남학생</span>
+            <span style='color:#78909C; margin-left:5px; font-size:11px;'>*이름(숫자)는 이전 반</span>
+            </div>""", unsafe_allow_html=True)
+
+    with col_h_spacer:
+        st.empty()
+
+
+    n_classes = len(target_class_names)
+    
+    if n_classes == 1: cols = st.columns([3, 1, 3]); content_cols = [cols[1]]
+    elif n_classes == 2: cols = st.columns([2.5, 1, 1, 2.5], gap="small"); content_cols = cols[1:3]
+    elif n_classes == 3: cols = st.columns([2, 1, 1, 1, 2], gap="small"); content_cols = cols[1:4]
+    elif n_classes == 4: cols = st.columns([1.5, 1, 1, 1, 1, 1.5], gap="small"); content_cols = cols[1:5]
+    elif n_classes == 5: cols = st.columns([0.5, 1, 1, 1, 1, 1, 0.5], gap="small"); content_cols = cols[1:6]
+    else: content_cols = st.columns(n_classes, gap="small") 
+
+    for i, cls in enumerate(target_class_names):
+        c_df = df[df['배정반'] == cls]
+        score = int(c_df['곤란도점수'].sum())
+        
+        m_total = len(c_df[c_df['성별']=='남'])
+        f_total = len(c_df[c_df['성별']=='여'])
+        m_real = len(c_df[(c_df['성별']=='남') & (~c_df['is_transfer'])])
+        f_real = len(c_df[(c_df['성별']=='여') & (~c_df['is_transfer'])])
+        
+        transfer_cnt = len(c_df[c_df['is_transfer']])
+        real_cnt = m_real + f_real 
+        
+        badges_html = ""
+        if transfer_cnt > 0:
+            badges_html += f"<span class='transfer-badge'>전출:{transfer_cnt}</span>"
+        
+        caution_counts = c_df[c_df['곤란도'] != ""]['곤란도'].value_counts()
+        for reason, count in caution_counts.items():
+            badges_html += f"<span class='stat-badge'>{reason}:{count}</span>"
+        
+        count_html = f"<div class='count-text'>여 {f_total}명 / 남 {m_total}명</div><div class='count-sub'>(전출제외: 여 {f_real} / 남 {m_real})</div>"
+
+        with content_cols[i]:
+            st.markdown(f"""<div class="class-header"><div class="class-title">{cls}반 <span class="real-count-tag">({real_cnt}명)</span></div><div class="score-text">{score}점</div>{count_html}<div class="badge-container">{badges_html}</div></div>""", unsafe_allow_html=True)
+            
+            f_rows = c_df[c_df['성별'] == '여'].sort_values(['is_transfer', '이름'])
+            m_rows = c_df[c_df['성별'] == '남'].sort_values(['is_transfer', '이름'])
+            
+            max_len = max(len(f_rows), len(m_rows))
+            cards_html = ""
+            
+            for j in range(max_len):
+                if j < len(f_rows):
+                    r = f_rows.iloc[j]
+                    bg_class = "bg-female"
+                    conflict = "card-conflict" if "⚡" in r['display_icon'] else ""
+                    t_tag = "<span class='tag-transfer-front'>전출</span>" if r['is_transfer'] else ""
+                    try: p_val = str(int(float(r['현재반']))) if pd.notna(r['현재반']) and str(r['현재반']).strip() else ""; p_disp = f"<span class='prev-class'>({p_val})</span>" if p_val else ""
+                    except: p_disp = ""
+                    note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
+                    if sc > 0: note += f"({sc})"
+                    rem = str(r['비고']) if pd.notna(r['비고']) else ""
+                    if r['is_transfer']: rem = rem.replace("전출예정", "").replace("전출", "").strip()
+                    if rem: note = f"{note} {rem}" if note else rem
+                    
+                    sep_mark = ""
+                    if pd.notna(r['분리희망학생_이름']) and str(r['분리희망학생_이름']).strip() != "":
+                        sep_mark = " 🔸"
+
+                    cards_html += f"""<div class="student-card {bg_class} {conflict}"><div class="std-name">{t_tag}{r['display_icon']} {r['이름']}{sep_mark}{p_disp}</div><span class="std-note">{note}</span></div>"""
+                else: cards_html += """<div class="empty-card"></div>"""
+
+                if j < len(m_rows):
+                    r = m_rows.iloc[j]
+                    bg_class = "bg-male"
+                    conflict = "card-conflict" if "⚡" in r['display_icon'] else ""
+                    t_tag = "<span class='tag-transfer-front'>전출</span>" if r['is_transfer'] else ""
+                    try: p_val = str(int(float(r['현재반']))) if pd.notna(r['현재반']) and str(r['현재반']).strip() else ""; p_disp = f"<span class='prev-class'>({p_val})</span>" if p_val else ""
+                    except: p_disp = ""
+                    note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
+                    if sc > 0: note += f"({sc})"
+                    rem = str(r['비고']) if pd.notna(r['비고']) else ""
+                    if r['is_transfer']: rem = rem.replace("전출예정", "").replace("전출", "").strip()
+                    if rem: note = f"{note} {rem}" if note else rem
+                    
+                    sep_mark = ""
+                    if pd.notna(r['분리희망학생_이름']) and str(r['분리희망학생_이름']).strip() != "":
+                        sep_mark = " 🔸"
+
+                    cards_html += f"""<div class="student-card {bg_class} {conflict}"><div class="std-name">{t_tag}{r['display_icon']} {r['이름']}{sep_mark}{p_disp}</div><span class="std-note">{note}</span></div>"""
+                else: cards_html += """<div class="empty-card"></div>"""
+
+            st.markdown(f"""<div class="student-grid">{cards_html}</div>""", unsafe_allow_html=True)
+
+    # ==========================================
+    # 2. 편집용 테이블
+    # ==========================================
+    st.divider()
+    
+    col_work_title, col_work_legend = st.columns([1.5, 8.5])
+    with col_work_title:
+        st.subheader("📝 이동 작업대")
+    with col_work_legend:
+         st.markdown("""<div style="margin-top: 8px; font-weight: 600; font-size: 13px; color: #555;">
+        <span style='display:inline-block;'>범례:</span>
+        <span style='background-color:#FFF9C4; color:#F57F17; border:1px solid #FBC02D; padding: 2px 6px; border-radius:4px; margin-left:5px;'>🔸 분리희망학생</span>
+        </div>""", unsafe_allow_html=True)
+    
+    col_f1, col_f2, col_f3, col_f4 = st.columns([1, 1, 1, 1])
+    
+    with col_f1: search_name = st.text_input("🔍 이름 검색")
+    with col_f2: 
+        prev_classes = sorted([str(int(float(x))) for x in df['현재반'].unique() if pd.notna(x) and str(x).strip() != ""])
+        filter_prev_cls = st.multiselect("이전 반", prev_classes)
+    with col_f3: filter_gender = st.multiselect("성별", ["남", "여"])
+    with col_f4: filter_new_cls = st.multiselect("새 학년 반", target_class_names)
+    
+    view_df = df.copy()
+    
+    def format_table_row(row):
+        if pd.notna(row['분리희망학생_이름']) and str(row['분리희망학생_이름']).strip() != "":
+            row['이름'] = f"{row['이름']} 🔸"
+        return row
+    
+    view_df = view_df.apply(format_table_row, axis=1)
+
+    if search_name: view_df = view_df[view_df['이름'].str.contains(search_name)]
+    if filter_prev_cls: 
+        view_df['temp_prev'] = view_df['현재반'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip()!="" else "")
+        view_df = view_df[view_df['temp_prev'].isin(filter_prev_cls)]
+    if filter_gender: view_df = view_df[view_df['성별'].isin(filter_gender)]
+    if filter_new_cls: view_df = view_df[view_df['배정반'].isin(filter_new_cls)]
+    
+    view_df = view_df.sort_values(['배정반', 'gender_rank', 'is_transfer', '이름'])
+    
+    editor_cols = ['현재반', '이름', 'display_icon', '성별', '배정반', '곤란도', '곤란도점수', '분리희망학생_이름', '분리희망학생_반', '비고', 'Internal_ID']
+    
+    edited_df = st.data_editor(
+        view_df[editor_cols],
+        key="main_editor",
+        hide_index=True,
+        column_config={
+            "현재반": st.column_config.NumberColumn("이전 반", width="small", disabled=True, format="%d"),
+            "이름": st.column_config.TextColumn("이름", width="small", disabled=True),
+            "display_icon": st.column_config.TextColumn("분리상태", width="small", disabled=True),
+            "성별": st.column_config.TextColumn("성별", width="small", disabled=True),
+            "배정반": st.column_config.SelectboxColumn("배정반", width="small", options=target_class_names, required=True),
+            "곤란도": st.column_config.TextColumn("곤란도", width="medium", disabled=True),
+            "곤란도점수": st.column_config.NumberColumn("점수", width="small", disabled=True),
+            "분리희망학생_이름": st.column_config.TextColumn("분리학생이름", width="medium", disabled=True),
+            "분리희망학생_반": st.column_config.TextColumn("분리학생이전반", width="small", disabled=True),
+            "비고": st.column_config.TextColumn("비고", width="medium", disabled=True),
+            "Internal_ID": None
+        },
+        use_container_width=True,
+        height=600
+    )
+
+    is_changed = False
+    for idx, row in edited_df.iterrows():
+        s_id = row['Internal_ID']
+        new_val = row['배정반']
+        old_val = df.loc[df['Internal_ID']==s_id, '배정반'].values[0]
+        if new_val != old_val:
+            st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID']==s_id, '배정반'] = new_val
+            is_changed = True
+            
+    if is_changed:
+        st.rerun()
