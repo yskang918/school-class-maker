@@ -304,11 +304,10 @@ def run_assignment(df, class_names):
     df = df.copy()
     conflict_pairs, _, _ = build_conflict_map(df)
     
-    # 반 초기화: real_students(실제인원), total_students(전체인원) 구분
-    classes = {c: {'students': [], 'real_count': 0, 'score_sum': 0, 'm_real': 0, 'f_real': 0, 
-                   'm_total': 0, 'f_total': 0, 'conflict_ids': set(), 'reasons': {}} for c in class_names}
+    # 반 초기화
+    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}} for c in class_names}
     
-    # 충돌 횟수 미리 계산 (정렬용)
+    # 충돌 횟수 계산
     conflict_counts = {id: 0 for id in df['Internal_ID']}
     for pair in conflict_pairs:
         for p in pair:
@@ -316,35 +315,23 @@ def run_assignment(df, class_names):
     df['conflict_degree'] = df['Internal_ID'].map(conflict_counts)
     
     # --- 그룹 분리 ---
-    # 1. 전출생 (Cushion)
     transfer_mask = df['is_transfer'] == True
-    
-    # 2. 고득점자 (점수 > 0) & 전출 아님 (Real High Score)
     high_score_mask = (df['곤란도점수'] > 0) & (~transfer_mask)
-    
-    # 3. 일반 학생 (점수 == 0) & 전출 아님 (Real Regular)
     regular_mask = (df['곤란도점수'] == 0) & (~transfer_mask)
     
-    # --- 단계별 배정 시작 ---
+    # --- 단계별 배정 ---
     
-    # [1단계: 고득점자] -> "점수 균형" 최우선 (Priority 3)
-    # 전략: 점수 높은 순서대로 -> 점수 합계가 낮은 반에 투입
-    # 충돌(Priority 1)은 절대 준수
+    # 1. 고득점자 (점수 균형)
     group_1 = df[high_score_mask].sort_values(by=['conflict_degree', '곤란도점수', '이름'], ascending=[False, False, True])
     for _, row in group_1.iterrows():
         assign_with_priority(row, classes, conflict_pairs, priority_mode="SCORE_BALANCE")
         
-    # [2단계: 일반 학생] -> "실제 인원 & 성비 균형" 최우선 (Priority 2)
-    # 전략: 인원 적은 곳 -> 성비 적은 곳
-    # 충돌(Priority 1)은 절대 준수
+    # 2. 일반 학생 (인원 & 성비 균형)
     group_2 = df[regular_mask].sort_values(by=['conflict_degree', '성별', '이름'], ascending=[False, True, True])
     for _, row in group_2.iterrows():
         assign_with_priority(row, classes, conflict_pairs, priority_mode="REAL_COUNT_BALANCE")
         
-    # [3단계: 전출생] -> "쿠션 역할" (Priority: Cushion)
-    # 전략: 실제 인원은 무시. 단순히 시각적 균형(전체 쪽수)이나 성비 보정용으로 사용
-    # 전출생이 있는 반은 인원이 더 많아져도 됨 -> 즉, '가장 적은 반'을 찾아갈 필요 없음.
-    # 여기서는 '전체 인원'이 적은 곳을 채워주거나, '전체 성비'를 맞춰주는 역할
+    # 3. 전출생 (쿠션)
     group_3 = df[transfer_mask].sort_values(by=['conflict_degree'], ascending=[False])
     for _, row in group_3.iterrows():
         assign_with_priority(row, classes, conflict_pairs, priority_mode="CUSHION_BALANCE")
@@ -373,63 +360,47 @@ def assign_with_priority(row, classes, conflict_pairs, priority_mode):
     for c_name, c_info in classes.items():
         cost = 0
         
-        # 1. [절대 원칙] 이름 충돌 회피 (비용 무한대)
+        # 1. 이름 충돌 회피 (비용 무한대)
         if not my_enemies.isdisjoint(c_info['conflict_ids']):
             cost += float('inf')
             
-        # 2. 모드별 비용 계산
+        # 2. 비용 계산
         if priority_mode == "SCORE_BALANCE":
-            # 점수 분산이 최우선 (점수 낮은 곳 선호)
             cost += (c_info['score_sum'] * 1000)
-            # 곤란도 종류 (Priority 4) - 같은 종류 있으면 약간 페널티
-            if s_reason and s_reason in c_info['reasons']:
-                cost += 500
-            # 실제 인원도 너무 차이나면 안됨
-            cost += (c_info['real_count'] * 10)
+            if s_reason and s_reason in c_info['reasons']: cost += 500
+            cost += (len(c_info['students']) * 10) # 인원도 살짝 고려
             
         elif priority_mode == "REAL_COUNT_BALANCE":
-            # 실제 인원 균형이 최우선
-            cost += (c_info['real_count'] * 10000)
-            # 성별 균형 (실제 성별 기준)
-            g_cnt = c_info['m_real'] if s_gender == '남' else c_info['f_real']
+            # 실제 인원 수 균형
+            real_cnt = len([sid for sid in c_info['students'] if sid not in df[df['is_transfer']].Internal_ID.values])
+            cost += (real_cnt * 10000)
+            # 성별 균형
+            g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
             cost += (g_cnt * 1000)
-            # 점수는 이제 크게 신경 안 씀 (0점짜리들이라)
             
         elif priority_mode == "CUSHION_BALANCE":
-            # 전출생은 '전체 인원(Total Count)'이 적은 곳을 채워줌 (시각적 밸런스)
             cost += (len(c_info['students']) * 1000)
-            # 혹은 성별 쿠션 역할 (전체 성비 기준)
-            g_cnt = c_info['m_total'] if s_gender == '남' else c_info['f_total']
+            g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
             cost += (g_cnt * 500)
             
         class_costs.append((cost, c_name))
         
-    # 비용 가장 낮은 반 선택
     class_costs.sort(key=lambda x: x[0])
     
-    # 만약 모든 반이 충돌이라면? (거의 없겠지만) -> 랜덤 배정
     if class_costs[0][0] == float('inf'):
         best_class = random.choice(list(classes.keys()))
     else:
         best_class = class_costs[0][1]
         
-    # 정보 업데이트
     c = classes[best_class]
     c['students'].append(s_id)
+    c['score_sum'] += s_score
     c['conflict_ids'].add(s_id)
-    
-    if s_gender == '남': c['m_total'] += 1
-    else: c['f_total'] += 1
-    
-    if not is_transfer:
-        c['real_count'] += 1
-        c['score_sum'] += s_score
-        if s_gender == '남': c['m_real'] += 1
-        else: c['f_real'] += 1
-        
-        if s_reason:
-            if s_reason not in c['reasons']: c['reasons'][s_reason] = 0
-            c['reasons'][s_reason] += 1
+    if s_gender == '남': c['m'] += 1
+    else: c['f'] += 1
+    if s_reason:
+        if s_reason not in c['reasons']: c['reasons'][s_reason] = 0
+        c['reasons'][s_reason] += 1
 
 
 st.write("")
@@ -449,6 +420,8 @@ if 'assigned_data' in st.session_state:
     conflict_pairs, separation_pairs, _ = build_conflict_map(df)
     current_map = df.set_index('Internal_ID')['배정반'].to_dict()
     
+    # [수정] 이동 작업대 정렬을 위한 gender_rank 복구
+    df['gender_rank'] = df['성별'].map({'여': 1, '남': 2}).fillna(3)
     df['display_icon'] = ""
     
     for idx, row in df.iterrows():
@@ -492,7 +465,7 @@ if 'assigned_data' in st.session_state:
         output = io.BytesIO()
         export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
         
-        save_df_full = df.sort_values(['배정반', '성별', 'is_transfer', '이름']) # 정렬 기준
+        save_df_full = df.sort_values(['배정반', 'gender_rank', 'is_transfer', '이름'])
         valid_cols = [c for c in export_cols if c in save_df_full.columns]
         final_save_df = save_df_full[valid_cols]
 
