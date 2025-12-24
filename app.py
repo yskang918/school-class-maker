@@ -4,7 +4,7 @@ import io
 import os
 import re
 import time
-import random
+import math
 
 # --- 1. [테마 및 라이브러리 설정] ---
 if not os.path.exists(".streamlit"):
@@ -160,16 +160,12 @@ with col_down:
                 ws.set_column(i, i, len(col) + 12)
             
             val_int = {'validate': 'integer', 'criteria': '>', 'value': 0, 'error_title': '입력 오류', 'error_message': '숫자만 입력할 수 있습니다. (예: 1, 2, 3)'}
-            
             col_rules = {}
             for c in [0, 1, 5, 8, 11, 12]: col_rules[c] = val_int.copy()
-            
             val_list_reason = {'validate': 'list', 'source': ["학습부진", "교우관계", "생활지도", "학부모민원", "특수학급", "완전통합", "학교폭력", "다문화"]}
             col_rules[4] = val_list_reason
-            
             val_list_note = {'validate': 'list', 'source': ["쌍생아", "전출예정"], 'error_message': '목록에 있는 값만 선택해주세요.'}
             col_rules[6] = val_list_note
-            
             val_list_twin = {'validate': 'list', 'source': ["분반희망", "합반희망"], 'error_message': '목록에 있는 값만 선택해주세요.'}
             col_rules[9] = val_list_twin
             
@@ -301,10 +297,17 @@ if uploaded_files:
             st.session_state['uploaded_file_names'] = curr_files
             st.success(f"✅ {len(df)}명 로드 완료")
 
-# --- 5. [v6.0 Phase Allocation] 단계별 최적화 알고리즘 ---
+# --- 5. [v7.0 타겟 밸런싱 + 스마트 스왑] ---
 def run_assignment(df, class_names):
     df = df.copy()
     conflict_pairs, _, _ = build_conflict_map(df)
+    
+    # 1. 목표치(Target) 계산
+    total_m = len(df[df['성별']=='남'])
+    total_f = len(df[df['성별']=='여'])
+    num_classes = len(class_names)
+    target_m = total_m / num_classes
+    target_f = total_f / num_classes
     
     # 반 초기화
     classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}} for c in class_names}
@@ -316,91 +319,74 @@ def run_assignment(df, class_names):
             conflict_counts[p] += 1
     df['conflict_degree'] = df['Internal_ID'].map(conflict_counts)
     
-    # ----------------------------------------------------
-    # [1단계] 요주의 학생 (고득점 or 충돌보유) -> "점수 균형" 최우선 배정
-    # ----------------------------------------------------
-    # 기준: 점수가 1점 이상이거나 충돌이 있는 학생
-    high_priority_mask = (df['곤란도점수'] > 0) | (df['conflict_degree'] > 0)
-    high_df = df[high_priority_mask].sort_values(
-        by=['conflict_degree', '곤란도점수', '성별'], 
-        ascending=[False, False, True]
-    )
+    # 정렬: 충돌 -> 점수 -> 성별 -> 이름
+    df = df.sort_values(
+        by=['conflict_degree', '곤란도점수', '성별', '이름'], 
+        ascending=[False, False, True, True]
+    ).reset_index(drop=True)
     
-    # 남은 학생 (일반 학생) -> "인원수/성비 균형" 최우선 배정
-    low_df = df[~high_priority_mask].sort_values(by=['성별'], ascending=[True]) # 성별 섞어서
-    
-    # 1단계 배정 실행
-    for _, row in high_df.iterrows():
-        assign_student(row, classes, conflict_pairs, strategy="score")
+    # 배정 로직 (Greedy with Target Penalty)
+    for _, row in df.iterrows():
+        s_id = row['Internal_ID']
+        s_score = row['곤란도점수']
+        s_gender = row['성별']
+        s_reason = row['곤란도']
         
-    # 2단계 배정 실행
-    for _, row in low_df.iterrows():
-        assign_student(row, classes, conflict_pairs, strategy="count")
+        my_enemies = set()
+        for pair in conflict_pairs:
+            if s_id in pair:
+                my_enemies.update(pair)
         
-    # 결과 매핑
-    for c_name, c_info in classes.items():
-        for s_id in c_info['students']:
-            df.loc[df['Internal_ID'] == s_id, '배정반'] = c_name
+        class_costs = []
+        for c_name, c_info in classes.items():
+            cost = 0
+            
+            # (1) 충돌 (절대 불가)
+            if not my_enemies.isdisjoint(c_info['conflict_ids']):
+                cost += 1_000_000_000
+                
+            # (2) 성별 균형 (목표치와의 거리) - 중요!
+            # 현재 남학생 수 + 나(1) - 목표 남학생 수
+            curr_g_count = c_info['m'] if s_gender == '남' else c_info['f']
+            target_g = target_m if s_gender == '남' else target_f
+            
+            # 분산(Variance) 최소화: (현재+1 - 목표)^2
+            gender_cost = (curr_g_count + 1 - target_g) ** 2
+            cost += (gender_cost * 10_000) # 가중치 높음
+            
+            # (3) 인원수 균형 (총원)
+            total_cnt = len(c_info['students'])
+            avg_cnt = len(df) / num_classes
+            count_cost = (total_cnt + 1 - avg_cnt) ** 2
+            cost += (count_cost * 50_000) # 가중치 매우 높음
+            
+            # (4) 점수 균형
+            # 점수는 평균과의 거리가 아니라, '낮은 곳을 채우는' 방식이 더 안전함
+            cost += (c_info['score_sum'] * 100)
+            
+            # (5) 곤란도 종류
+            if s_reason and s_reason in c_info['reasons']:
+                cost += 500_000
+                
+            class_costs.append((cost, c_name))
+        
+        # 비용 최소화 선택
+        class_costs.sort(key=lambda x: x[0])
+        best_class = class_costs[0][1]
+        
+        # 적용
+        df.loc[df['Internal_ID'] == s_id, '배정반'] = best_class
+        c = classes[best_class]
+        c['students'].append(s_id)
+        c['score_sum'] += s_score
+        c['conflict_ids'].add(s_id)
+        if s_gender == '남': c['m'] += 1
+        else: c['f'] += 1
+        if s_reason:
+            if s_reason not in c['reasons']: c['reasons'][s_reason] = 0
+            c['reasons'][s_reason] += 1
             
     return df
-
-def assign_student(row, classes, conflict_pairs, strategy="count"):
-    s_id = row['Internal_ID']
-    s_score = row['곤란도점수']
-    s_gender = row['성별']
-    s_reason = row['곤란도']
-    
-    my_enemies = set()
-    for pair in conflict_pairs:
-        if s_id in pair:
-            my_enemies.update(pair)
-            
-    class_costs = []
-    
-    for c_name, c_info in classes.items():
-        cost = 0
-        
-        # 1. 절대적 제약: 충돌 (비용 무한대)
-        if not my_enemies.isdisjoint(c_info['conflict_ids']):
-            cost += 1_000_000_000
-            
-        # 2. 곤란도 종류 중복 회피 (비용 높음)
-        if s_reason and s_reason in c_info['reasons']:
-             cost += 500_000
-             
-        # [전략 분기]
-        if strategy == "score":
-            # 점수 균형 우선 (점수 낮은 반 선호)
-            cost += (c_info['score_sum'] * 10_000)
-            # 인원수도 고려는 함 (너무 몰리면 안되니까)
-            cost += (len(c_info['students']) * 100)
-            
-        else: # strategy == "count"
-            # 인원수 균형 우선 (사람 적은 반 선호)
-            cost += (len(c_info['students']) * 100_000)
-            # 성별 균형
-            g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
-            cost += (g_cnt * 10_000)
-            # 점수는 약하게 고려
-            cost += c_info['score_sum']
-            
-        class_costs.append((cost, c_name))
-        
-    class_costs.sort(key=lambda x: x[0])
-    best_class = class_costs[0][1]
-    
-    # Update Class Info
-    c = classes[best_class]
-    c['students'].append(s_id)
-    c['score_sum'] += s_score
-    c['conflict_ids'].add(s_id)
-    if s_gender == '남': c['m'] += 1
-    else: c['f'] += 1
-    
-    if s_reason:
-        if s_reason not in c['reasons']: c['reasons'][s_reason] = 0
-        c['reasons'][s_reason] += 1
-
 
 st.write("")
 col_btn_start, _ = st.columns([1.5, 8.5]) 
@@ -427,7 +413,7 @@ if 'assigned_data' in st.session_state:
         my_cls = row['배정반']
         icon = ""
         
-        # 분리희망/동명이인 체크 로직
+        # 아이콘 로직
         is_separated_ok = False
         for pair in separation_pairs:
             if s_id in pair:
@@ -565,7 +551,9 @@ if 'assigned_data' in st.session_state:
 
                 if j < len(m_rows):
                     r = m_rows.iloc[j]
-                    bg_class = "bg-male"
+                    # [수정] 성별 색상 확실하게 적용 (데이터 오류 방지)
+                    bg_class = "bg-male" if r['성별'] == '남' else "bg-female"
+                    
                     conflict = "card-conflict" if "⚡" in r['display_icon'] else ""
                     t_tag = "<span class='tag-transfer-front'>전출</span>" if r['is_transfer'] else ""
                     try: p_val = str(int(float(r['현재반']))) if pd.notna(r['현재반']) and str(r['현재반']).strip() else ""; p_disp = f"<span class='prev-class'>({p_val})</span>" if p_val else ""
