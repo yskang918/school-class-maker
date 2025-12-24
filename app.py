@@ -4,6 +4,7 @@ import io
 import os
 import re
 import time
+import random
 
 # --- 1. [테마 및 라이브러리 설정] ---
 if not os.path.exists(".streamlit"):
@@ -215,14 +216,13 @@ def get_given_name(full_name):
 def build_conflict_map(df):
     lookup = {}
     conflict_pairs = set()
-    separation_pairs = set() # 분리희망 쌍만 따로 추적 (초록 체크용)
+    separation_pairs = set()
     
     for _, r in df.iterrows():
         lookup[r['Internal_ID']] = r 
         lookup[f"{r['이름']}"] = r['Internal_ID']
         lookup[f"{r['이름']}_{r['현재반']}_{r['번호']}"] = r['Internal_ID']
 
-    # 1. 분리희망 (우선순위 높음)
     for _, r in df.iterrows():
         my_id = r['Internal_ID']
         t_name = r['분리희망학생_이름']
@@ -235,7 +235,6 @@ def build_conflict_map(df):
                 conflict_pairs.add(pair)
                 separation_pairs.add(pair)
     
-    # 2. 동명이인(이름만 같음 포함)
     given_name_map = {} 
     for _, r in df.iterrows():
         g_name = get_given_name(r['이름'])
@@ -268,7 +267,6 @@ if uploaded_files:
 
         if all_dfs:
             df = pd.concat(all_dfs, ignore_index=True)
-            
             rename_map = {
                 '비고(쌍생아/전출)': '비고',
                 '비고(쌍생아/전출/동명이인)': '비고', 
@@ -296,7 +294,6 @@ if uploaded_files:
             else: df['곤란도'] = ""
             
             df['비고'] = df['비고'].fillna("") if '비고' in df.columns else ""
-            
             df['is_transfer'] = df['비고'].str.contains('전출', na=False)
             df['Internal_ID'] = [f"ID_{i}" for i in range(len(df))]
             
@@ -304,84 +301,106 @@ if uploaded_files:
             st.session_state['uploaded_file_names'] = curr_files
             st.success(f"✅ {len(df)}명 로드 완료")
 
-# --- 5. [최종] 페널티 기반 최적 균형 알고리즘 ---
+# --- 5. [v6.0 Phase Allocation] 단계별 최적화 알고리즘 ---
 def run_assignment(df, class_names):
     df = df.copy()
-    
     conflict_pairs, _, _ = build_conflict_map(df)
     
-    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 
-                   'conflict_ids': set(), 'reasons': {}} for c in class_names}
+    # 반 초기화
+    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}} for c in class_names}
     
-    # 정렬: 충돌보유자 -> 고득점자 -> 곤란도보유자 -> 성별
+    # 충돌 횟수 계산
     conflict_counts = {id: 0 for id in df['Internal_ID']}
     for pair in conflict_pairs:
         for p in pair:
             conflict_counts[p] += 1
-    
     df['conflict_degree'] = df['Internal_ID'].map(conflict_counts)
     
-    df = df.sort_values(
-        by=['conflict_degree', '곤란도점수', '곤란도', '성별'], 
-        ascending=[False, False, False, True]
-    ).reset_index(drop=True)
+    # ----------------------------------------------------
+    # [1단계] 요주의 학생 (고득점 or 충돌보유) -> "점수 균형" 최우선 배정
+    # ----------------------------------------------------
+    # 기준: 점수가 1점 이상이거나 충돌이 있는 학생
+    high_priority_mask = (df['곤란도점수'] > 0) | (df['conflict_degree'] > 0)
+    high_df = df[high_priority_mask].sort_values(
+        by=['conflict_degree', '곤란도점수', '성별'], 
+        ascending=[False, False, True]
+    )
     
-    for _, row in df.iterrows():
-        s_id = row['Internal_ID']
-        s_score = row['곤란도점수']
-        s_gender = row['성별']
-        s_reason = row['곤란도']
+    # 남은 학생 (일반 학생) -> "인원수/성비 균형" 최우선 배정
+    low_df = df[~high_priority_mask].sort_values(by=['성별'], ascending=[True]) # 성별 섞어서
+    
+    # 1단계 배정 실행
+    for _, row in high_df.iterrows():
+        assign_student(row, classes, conflict_pairs, strategy="score")
         
-        my_enemies = set()
-        for pair in conflict_pairs:
-            if s_id in pair:
-                my_enemies.update(pair)
+    # 2단계 배정 실행
+    for _, row in low_df.iterrows():
+        assign_student(row, classes, conflict_pairs, strategy="count")
         
-        class_costs = []
-        
-        for c_name, c_info in classes.items():
-            cost = 0
-            
-            # 1. 충돌 회피 (최우선: 100만점)
-            if not my_enemies.isdisjoint(c_info['conflict_ids']):
-                cost += 1_000_000 
-                
-            # 2. 인원수 균형 (매우 강력: 1만점/명) -> 인원 적은 곳 강제 배정
-            count = len(c_info['students'])
-            cost += (count * 10_000) 
-            
-            # 3. 성별 균형 (강력: 1000점/명)
-            gender_count = c_info['m'] if s_gender == '남' else c_info['f']
-            cost += (gender_count * 1_000)
-            
-            # 4. 곤란도 종류 분산 (중간: 500점)
-            if s_reason and s_reason in c_info['reasons']:
-                cost += (c_info['reasons'][s_reason] * 500)
-            
-            # 5. 점수 균형 (기본: 점수만큼)
-            cost += (c_info['score_sum'] * 10) 
-            
-            class_costs.append((cost, c_name))
-        
-        # 비용이 가장 낮은 반 선택
-        class_costs.sort(key=lambda x: x[0])
-        best_class = class_costs[0][1]
-        
-        # 배정
-        df.loc[df['Internal_ID'] == s_id, '배정반'] = best_class
-        
-        c_target = classes[best_class]
-        c_target['students'].append(s_id)
-        c_target['score_sum'] += s_score
-        c_target['conflict_ids'].add(s_id)
-        if s_gender == '남': c_target['m'] += 1
-        else: c_target['f'] += 1
-        
-        if s_reason:
-            if s_reason not in c_target['reasons']: c_target['reasons'][s_reason] = 0
-            c_target['reasons'][s_reason] += 1
+    # 결과 매핑
+    for c_name, c_info in classes.items():
+        for s_id in c_info['students']:
+            df.loc[df['Internal_ID'] == s_id, '배정반'] = c_name
             
     return df
+
+def assign_student(row, classes, conflict_pairs, strategy="count"):
+    s_id = row['Internal_ID']
+    s_score = row['곤란도점수']
+    s_gender = row['성별']
+    s_reason = row['곤란도']
+    
+    my_enemies = set()
+    for pair in conflict_pairs:
+        if s_id in pair:
+            my_enemies.update(pair)
+            
+    class_costs = []
+    
+    for c_name, c_info in classes.items():
+        cost = 0
+        
+        # 1. 절대적 제약: 충돌 (비용 무한대)
+        if not my_enemies.isdisjoint(c_info['conflict_ids']):
+            cost += 1_000_000_000
+            
+        # 2. 곤란도 종류 중복 회피 (비용 높음)
+        if s_reason and s_reason in c_info['reasons']:
+             cost += 500_000
+             
+        # [전략 분기]
+        if strategy == "score":
+            # 점수 균형 우선 (점수 낮은 반 선호)
+            cost += (c_info['score_sum'] * 10_000)
+            # 인원수도 고려는 함 (너무 몰리면 안되니까)
+            cost += (len(c_info['students']) * 100)
+            
+        else: # strategy == "count"
+            # 인원수 균형 우선 (사람 적은 반 선호)
+            cost += (len(c_info['students']) * 100_000)
+            # 성별 균형
+            g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
+            cost += (g_cnt * 10_000)
+            # 점수는 약하게 고려
+            cost += c_info['score_sum']
+            
+        class_costs.append((cost, c_name))
+        
+    class_costs.sort(key=lambda x: x[0])
+    best_class = class_costs[0][1]
+    
+    # Update Class Info
+    c = classes[best_class]
+    c['students'].append(s_id)
+    c['score_sum'] += s_score
+    c['conflict_ids'].add(s_id)
+    if s_gender == '남': c['m'] += 1
+    else: c['f'] += 1
+    
+    if s_reason:
+        if s_reason not in c['reasons']: c['reasons'][s_reason] = 0
+        c['reasons'][s_reason] += 1
+
 
 st.write("")
 col_btn_start, _ = st.columns([1.5, 8.5]) 
@@ -408,29 +427,27 @@ if 'assigned_data' in st.session_state:
         my_cls = row['배정반']
         icon = ""
         
-        # 아이콘 로직
-        # 1. 분리희망 쌍 확인
+        # 분리희망/동명이인 체크 로직
         is_separated_ok = False
         for pair in separation_pairs:
             if s_id in pair:
                 others = [x for x in pair if x != s_id]
                 if others and others[0] in current_map:
                     if current_map[others[0]] != my_cls:
-                        is_separated_ok = True # 분리 성공 (잠정)
+                        is_separated_ok = True
                     else:
-                        icon = "⚡" # 실패 시 번개
+                        icon = "⚡"
                         is_separated_ok = False
                         break
         
         if is_separated_ok and icon != "⚡":
-            icon = "✅" # 분리 희망 학생만 성공 시 체크 표시
+            icon = "✅" 
 
-        # 2. 동명이인 충돌 확인 (분리희망과 겹치면 번개 우선)
         for pair in conflict_pairs:
             if s_id in pair:
                 others = [x for x in pair if x != s_id]
                 if others and others[0] in current_map and current_map[others[0]] == my_cls:
-                    icon = "⚡" # 동명이인이 같은 반이면 무조건 번개
+                    icon = "⚡"
                     break
         
         df.at[idx, 'display_icon'] = icon
@@ -529,6 +546,26 @@ if 'assigned_data' in st.session_state:
                 if j < len(f_rows):
                     r = f_rows.iloc[j]
                     bg_class = "bg-female"
+                    conflict = "card-conflict" if "⚡" in r['display_icon'] else ""
+                    t_tag = "<span class='tag-transfer-front'>전출</span>" if r['is_transfer'] else ""
+                    try: p_val = str(int(float(r['현재반']))) if pd.notna(r['현재반']) and str(r['현재반']).strip() else ""; p_disp = f"<span class='prev-class'>({p_val})</span>" if p_val else ""
+                    except: p_disp = ""
+                    note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
+                    if sc > 0: note += f"({sc})"
+                    rem = str(r['비고']) if pd.notna(r['비고']) else ""
+                    if r['is_transfer']: rem = rem.replace("전출예정", "").replace("전출", "").strip()
+                    if rem: note = f"{note} {rem}" if note else rem
+                    
+                    sep_mark = ""
+                    if pd.notna(r['분리희망학생_이름']) and str(r['분리희망학생_이름']).strip() != "":
+                        sep_mark = " 🔸"
+
+                    cards_html += f"""<div class="student-card {bg_class} {conflict}"><div class="std-name">{t_tag}{r['display_icon']} {r['이름']}{sep_mark}{p_disp}</div><span class="std-note">{note}</span></div>"""
+                else: cards_html += """<div class="empty-card"></div>"""
+
+                if j < len(m_rows):
+                    r = m_rows.iloc[j]
+                    bg_class = "bg-male"
                     conflict = "card-conflict" if "⚡" in r['display_icon'] else ""
                     t_tag = "<span class='tag-transfer-front'>전출</span>" if r['is_transfer'] else ""
                     try: p_val = str(int(float(r['현재반']))) if pd.notna(r['현재반']) and str(r['현재반']).strip() else ""; p_disp = f"<span class='prev-class'>({p_val})</span>" if p_val else ""
