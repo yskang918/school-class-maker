@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v22.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v23.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -125,13 +125,11 @@ st.markdown("""
     
     .swap-container { background-color: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #E0E0E0; }
     .swap-label { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 5px; }
-    
-    /* Expander 및 Container 스타일 */
     div[data-testid="stExpander"] { border: 1px solid #ddd; border-radius: 8px; background-color: white; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v22.0)")
+st.title("🏫 반편성 프로그램 (v23.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -418,14 +416,17 @@ if 'assigned_data' in st.session_state:
     col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.8, 1.5, 4.5, 4], gap="small")
     with col_h_1: st.markdown("<div class='header-title-text'>👀 학급별 구성</div>", unsafe_allow_html=True)
     
-    # [수정] 엑셀 저장 버튼 이원화 (배정반 기준 / 현재반 기준)
+    # [수정] 엑셀 저장 (새 번호 부여)
     with col_h_2:
-        # 배정반 기준 엑셀 (전출생 맨 뒤로 정렬)
         output_assigned = io.BytesIO()
         export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
         
-        # 정렬 로직: 배정반 -> 전출여부(False먼저) -> 성별 -> 이름 (전출생을 맨 뒤로 보내기 위함)
-        save_df_assigned = df.sort_values(['배정반', 'is_transfer', 'gender_rank', '이름'])
+        # 1. 정렬: 배정반 -> 전출여부(False먼저) -> 성별 -> 이름
+        save_df_assigned = df.sort_values(['배정반', 'is_transfer', 'gender_rank', '이름']).copy()
+        
+        # 2. 번호 재부여 (반별 그룹화하여 1부터 순차 번호 생성)
+        save_df_assigned['번호'] = save_df_assigned.groupby('배정반').cumcount() + 1
+        
         valid_cols = [c for c in export_cols if c in save_df_assigned.columns]
         save_df_assigned = save_df_assigned[valid_cols]
         
@@ -437,31 +438,26 @@ if 'assigned_data' in st.session_state:
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_assigned.columns): sheet.set_column(i, i, 12)
                 
-        # 현재반 기준 엑셀
         output_current = io.BytesIO()
-        # 현재반을 숫자로 변환하여 정렬용 컬럼 생성
         df['current_class_int'] = pd.to_numeric(df['현재반'], errors='coerce').fillna(999).astype(int)
         df['current_num_int'] = pd.to_numeric(df['번호'], errors='coerce').fillna(999).astype(int)
         
         save_df_current = df.sort_values(['current_class_int', 'current_num_int'])
-        # 배정반을 앞쪽으로 배치
         current_export_cols = ['현재반', '번호', '이름', '성별', '배정반', '비고', '곤란도']
         valid_curr_cols = [c for c in current_export_cols if c in save_df_current.columns]
         save_df_current_final = save_df_current[valid_curr_cols]
         
         with pd.ExcelWriter(output_current, engine='xlsxwriter') as writer:
             save_df_current_final.to_excel(writer, index=False, sheet_name='전체 명단')
-            # 반별 시트 생성 (1반, 2반...)
             unique_classes = sorted(df['current_class_int'].unique())
             for c_num in unique_classes:
-                if c_num == 999: continue # 예외 처리
+                if c_num == 999: continue
                 c_df = save_df_current_final[save_df_current['current_class_int'] == c_num]
                 if not c_df.empty:
                     c_df.to_excel(writer, index=False, sheet_name=f'{c_num}반')
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
 
-        # 버튼 두 개 배치
         c_btn1, c_btn2 = st.columns(2)
         c_btn1.download_button("📥 배정반 기준 명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
         c_btn2.download_button("📥 현재반 기준 명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
@@ -520,7 +516,6 @@ if 'assigned_data' in st.session_state:
                     if sc > 0: note += f"({sc})"
                     rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
                     
-                    # [확인] 쌍생아 뱃지 로직 (연두색 박스 복구)
                     if "쌍생아" in rem:
                         twin_text = "쌍생아"
                         if pd.notna(r['쌍생아반편성']):
@@ -550,7 +545,6 @@ if 'assigned_data' in st.session_state:
                     if sc > 0: note += f"({sc})"
                     rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
                     
-                    # [확인] 쌍생아 뱃지 로직
                     if "쌍생아" in rem:
                         twin_text = "쌍생아"
                         if pd.notna(r['쌍생아반편성']):
