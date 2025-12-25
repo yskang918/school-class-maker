@@ -29,9 +29,9 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v13.1", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v14.0", layout="wide", initial_sidebar_state="collapsed") 
 
-# CSS: 디자인 디테일 설정
+# CSS: 디자인 디테일 설정 (버튼 색상 고정 및 테두리 강화)
 st.markdown("""
 <style>
     .stApp { background-color: #F4F6F9; }
@@ -41,6 +41,40 @@ st.markdown("""
         padding-left: 1rem; 
         padding-right: 1rem; 
         max-width: 100%;
+    }
+
+    /* [중요] 버튼 색상 강제 고정 (파란색) */
+    div.stButton > button {
+        background-color: #5DADEC !important;
+        color: white !important;
+        border: none !important;
+        font-weight: 700 !important;
+    }
+    div.stButton > button:hover {
+        background-color: #4a9ec8 !important; /* 호버 시 약간 진하게 */
+        color: white !important;
+    }
+    div.stDownloadButton > button {
+        background-color: #5DADEC !important;
+        color: white !important;
+        border: none !important;
+        font-weight: 700 !important;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #4a9ec8 !important;
+        color: white !important;
+    }
+
+    /* [중요] 드롭다운 및 입력창 테두리 강화 (가시성 확보) */
+    div[data-baseweb="select"] > div {
+        border: 1px solid #B0BEC5 !important;
+        border-radius: 4px !important;
+        background-color: white !important;
+    }
+    div[data-baseweb="input"] > div {
+        border: 1px solid #B0BEC5 !important;
+        border-radius: 4px !important;
+        background-color: white !important;
     }
 
     /* 점수판 헤더 */
@@ -127,6 +161,21 @@ st.markdown("""
         font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap;
     }
     
+    /* 교환 센터 스타일 */
+    .swap-container {
+        background-color: white;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+        border: 1px solid #E0E0E0;
+    }
+    div[data-testid="stExpander"] {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background-color: white;
+    }
+    
     /* 드롭다운 라벨 스타일링 */
     .swap-label {
         font-size: 14px;
@@ -134,16 +183,10 @@ st.markdown("""
         color: #555;
         margin-bottom: 5px;
     }
-    
-    div[data-testid="stExpander"] {
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        background-color: white;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v13.1)")
+st.title("🏫 반편성 프로그램 (v14.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -648,19 +691,29 @@ if 'assigned_data' in st.session_state:
                     
                     time.sleep(0.5)
                     st.rerun()
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대 (Expander로 숨김 처리)
     st.write("")
-    with st.expander("📋 (구버전) 전체 명단 상세 편집 열기"):
-        col_f1, col_f2, col_f3, col_f4 = st.columns([1, 1, 1, 1])
+    # [수정] 제목 변경: (구버전) 제거
+    with st.expander("📋 전체 명단 상세 편집 열기"):
+        # [수정] 필터 3개로 간소화 (이름 검색, 배정반, 현재반)
+        col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
+        
         with col_f1: search_name = st.text_input("🔍 이름 검색")
         with col_f2: 
+            filter_new_cls = st.multiselect("배정반", target_class_names) # 용어 통일
+        with col_f3: 
             prev_classes = sorted([str(int(float(x))) for x in df['현재반'].unique() if pd.notna(x) and str(x).strip() != ""])
-            filter_prev_cls = st.multiselect("이전 반", prev_classes)
-        with col_f3: filter_gender = st.multiselect("성별", ["남", "여"])
-        with col_f4: filter_new_cls = st.multiselect("새 학년 반", target_class_names)
+            filter_prev_cls = st.multiselect("현재반", prev_classes) # 용어 통일
         
         view_df = df.copy()
+        
+        # [안전장치] 키 오류 방지를 위해 gender_rank 강제 재생성
+        if 'gender_rank' not in view_df.columns:
+            view_df['gender_rank'] = view_df['성별'].map({'여': 1, '남': 2}).fillna(3)
+        
         mask_sep = view_df['분리희망학생_이름'].notna() & (view_df['분리희망학생_이름'].astype(str).str.strip() != "")
         view_df.loc[mask_sep, '이름'] = view_df.loc[mask_sep, '이름'] + " 🔸"
 
@@ -668,7 +721,6 @@ if 'assigned_data' in st.session_state:
         if filter_prev_cls: 
             view_df['temp_prev'] = view_df['현재반'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip()!="" else "")
             view_df = view_df[view_df['temp_prev'].isin(filter_prev_cls)]
-        if filter_gender: view_df = view_df[view_df['성별'].isin(filter_gender)]
         if filter_new_cls: view_df = view_df[view_df['배정반'].isin(filter_new_cls)]
         
         view_df = view_df.sort_values(['배정반', 'gender_rank', 'is_transfer', '이름'])
