@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v25.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v26.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -60,10 +60,11 @@ st.markdown("""
         color: white !important;
         border: none !important;
         font-weight: 700 !important;
-        white-space: normal !important; /* 버튼 텍스트 줄바꿈 허용 */
-        height: auto !important; /* 높이 자동 조절 */
-        padding-top: 10px !important;
-        padding-bottom: 10px !important;
+        white-space: pre-wrap !important; /* 강제 줄바꿈 허용 (\n 인식) */
+        height: auto !important;
+        padding-top: 12px !important;
+        padding-bottom: 12px !important;
+        line-height: 1.4 !important; /* 줄 간격 조정 */
     }
 
     /* 드롭다운 및 입력창 테두리 강화 */
@@ -134,7 +135,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v25.0)")
+st.title("🏫 반편성 프로그램 (v26.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -228,7 +229,7 @@ def build_conflict_map(df):
 
     return conflict_pairs, separation_pairs, together_pairs, lookup
 
-# [NEW] 관계 자동 동기화 (Auto-Sync)
+# 관계 자동 동기화 (Auto-Sync)
 def sync_relationships(df):
     for idx, row in df.iterrows():
         if pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "":
@@ -309,7 +310,7 @@ def run_assignment(df, class_names):
         for p in pair: conflict_counts[p] += 1
     df['conflict_degree'] = df['Internal_ID'].map(conflict_counts)
     
-    # [NEW] 출신 반 정보 미리 매핑 (성능 최적화)
+    # [NEW] 출신 반 정보 미리 매핑
     id_to_prev = df.set_index('Internal_ID')['현재반'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() else "").to_dict()
 
     transfer_mask = df['is_transfer'] == True
@@ -332,8 +333,6 @@ def run_assignment(df, class_names):
 
 def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_mode, df, id_to_prev):
     s_id = row['Internal_ID']; s_score = row['곤란도점수']; s_gender = row['성별']; s_reason = row['곤란도']
-    
-    # 현재 학생의 이전 반
     s_prev = id_to_prev.get(s_id, "")
 
     forced_class = None
@@ -372,13 +371,13 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                 g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
                 cost += (g_cnt * 500)
             
-            # [NEW] 출신 반 분산 벌점 (Penalty)
+            # 출신 반 분산 벌점
             if s_prev:
                 same_origin_cnt = 0
                 for exist_id in c_info['students']:
                     if id_to_prev.get(exist_id) == s_prev:
                         same_origin_cnt += 1
-                cost += (same_origin_cnt * 100) # 벌점 부여 (낮은 가중치)
+                cost += (same_origin_cnt * 100)
 
             class_costs.append((cost, c_name))
             
@@ -436,17 +435,14 @@ if 'assigned_data' in st.session_state:
     col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.8, 1.5, 4.5, 4], gap="small")
     with col_h_1: st.markdown("<div class='header-title-text'>👀 학급별 구성</div>", unsafe_allow_html=True)
     
-    # 엑셀 저장 (새 번호 부여)
+    # 엑셀 저장 (줄바꿈 수정)
     with col_h_2:
         output_assigned = io.BytesIO()
         export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
-        
         save_df_assigned = df.sort_values(['배정반', 'is_transfer', 'gender_rank', '이름']).copy()
         save_df_assigned['번호'] = save_df_assigned.groupby('배정반').cumcount() + 1
-        
         valid_cols = [c for c in export_cols if c in save_df_assigned.columns]
         save_df_assigned = save_df_assigned[valid_cols]
-        
         with pd.ExcelWriter(output_assigned, engine='xlsxwriter') as writer:
             save_df_assigned.to_excel(writer, index=False, sheet_name='전체')
             for cls in target_class_names:
@@ -458,27 +454,24 @@ if 'assigned_data' in st.session_state:
         output_current = io.BytesIO()
         df['current_class_int'] = pd.to_numeric(df['현재반'], errors='coerce').fillna(999).astype(int)
         df['current_num_int'] = pd.to_numeric(df['번호'], errors='coerce').fillna(999).astype(int)
-        
         save_df_current = df.sort_values(['current_class_int', 'current_num_int'])
         current_export_cols = ['현재반', '번호', '이름', '성별', '배정반', '비고', '곤란도']
         valid_curr_cols = [c for c in current_export_cols if c in save_df_current.columns]
         save_df_current_final = save_df_current[valid_curr_cols]
-        
         with pd.ExcelWriter(output_current, engine='xlsxwriter') as writer:
             save_df_current_final.to_excel(writer, index=False, sheet_name='전체 명단')
             unique_classes = sorted(df['current_class_int'].unique())
             for c_num in unique_classes:
                 if c_num == 999: continue
                 c_df = save_df_current_final[save_df_current['current_class_int'] == c_num]
-                if not c_df.empty:
-                    c_df.to_excel(writer, index=False, sheet_name=f'{c_num}반')
+                if not c_df.empty: c_df.to_excel(writer, index=False, sheet_name=f'{c_num}반')
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
 
         c_btn1, c_btn2 = st.columns(2)
-        # [수정] 텍스트 줄바꿈 제어 (NBSP 사용)
-        c_btn1.download_button("📥 배정반\u00A0기준 명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
-        c_btn2.download_button("📥 현재반\u00A0기준 명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
+        # [수정] 강제 줄바꿈 (\n) 삽입
+        c_btn1.download_button("📥 배정반 기준\n명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
+        c_btn2.download_button("📥 현재반 기준\n명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
 
     with col_h_3:
         st.markdown("""<div style="margin-top: 10px; font-weight: 600; font-size: 13px; color: #555; white-space: nowrap;">
@@ -620,7 +613,6 @@ if 'assigned_data' in st.session_state:
                         st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
                         st.toast(f"👉 {s_std_name} 이동 완료!")
                     time.sleep(0.5); st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
