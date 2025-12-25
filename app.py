@@ -29,9 +29,9 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v14.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v15.1", layout="wide", initial_sidebar_state="collapsed") 
 
-# CSS: 디자인 디테일 설정 (버튼 색상 고정 및 테두리 강화)
+# CSS: 디자인 디테일 설정
 st.markdown("""
 <style>
     .stApp { background-color: #F4F6F9; }
@@ -43,16 +43,21 @@ st.markdown("""
         max-width: 100%;
     }
 
-    /* [중요] 버튼 색상 강제 고정 (파란색) */
+    /* 버튼 색상 강제 고정 (파란색) */
+    button[kind="primary"] {
+        background-color: #5DADEC !important;
+        border-color: #5DADEC !important;
+        color: white !important;
+    }
+    button[kind="secondary"] {
+        border-color: #5DADEC !important;
+        color: #5DADEC !important;
+    }
     div.stButton > button {
         background-color: #5DADEC !important;
         color: white !important;
         border: none !important;
         font-weight: 700 !important;
-    }
-    div.stButton > button:hover {
-        background-color: #4a9ec8 !important; /* 호버 시 약간 진하게 */
-        color: white !important;
     }
     div.stDownloadButton > button {
         background-color: #5DADEC !important;
@@ -60,12 +65,8 @@ st.markdown("""
         border: none !important;
         font-weight: 700 !important;
     }
-    div.stDownloadButton > button:hover {
-        background-color: #4a9ec8 !important;
-        color: white !important;
-    }
 
-    /* [중요] 드롭다운 및 입력창 테두리 강화 (가시성 확보) */
+    /* 드롭다운 및 입력창 테두리 강화 */
     div[data-baseweb="select"] > div {
         border: 1px solid #B0BEC5 !important;
         border-radius: 4px !important;
@@ -170,23 +171,21 @@ st.markdown("""
         margin-bottom: 20px;
         border: 1px solid #E0E0E0;
     }
-    div[data-testid="stExpander"] {
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        background-color: white;
-    }
-    
-    /* 드롭다운 라벨 스타일링 */
     .swap-label {
         font-size: 14px;
         font-weight: 700;
         color: #555;
         margin-bottom: 5px;
     }
+    div[data-testid="stExpander"] {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background-color: white;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v14.0)")
+st.title("🏫 반편성 프로그램 (v15.1)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -265,12 +264,14 @@ def get_given_name(full_name):
 def build_conflict_map(df):
     lookup = {}
     conflict_pairs = set()
-    separation_pairs = set()
+    separation_pairs = set() # 분리 희망 (초록 체크용)
+    together_pairs = set() # 합반 희망 (쌍생아)
     
     for _, r in df.iterrows():
         lookup[r['Internal_ID']] = r 
         lookup[f"{r['이름']}"] = r['Internal_ID']
         lookup[f"{r['이름']}_{r['현재반']}_{r['번호']}"] = r['Internal_ID']
+        lookup[f"{r['이름']}_{r['현재반']}"] = r['Internal_ID']
 
     # 1. 분리희망
     for _, r in df.iterrows():
@@ -299,7 +300,22 @@ def build_conflict_map(df):
                 for j in range(i + 1, len(ids)):
                     conflict_pairs.add(frozenset([ids[i], ids[j]]))
 
-    return conflict_pairs, separation_pairs, lookup
+    # 3. 쌍생아 로직
+    for _, r in df.iterrows():
+        if pd.notna(r['쌍생아_이름']) and str(r['쌍생아_이름']).strip() != "":
+            my_id = r['Internal_ID']
+            t_key = f"{r['쌍생아_이름']}_{r['쌍생아_반']}"
+            target_id = lookup.get(t_key)
+            
+            if isinstance(target_id, str) and target_id != my_id:
+                pair = frozenset([my_id, target_id])
+                mode = r['쌍생아반편성']
+                if mode == "분반희망":
+                    conflict_pairs.add(pair)
+                elif mode == "합반희망":
+                    together_pairs.add(pair)
+
+    return conflict_pairs, separation_pairs, together_pairs, lookup
 
 # --- 4. 파일 업로드 ---
 st.markdown("---")
@@ -352,10 +368,10 @@ if uploaded_files:
             st.session_state['uploaded_file_names'] = curr_files
             st.success(f"✅ {len(df)}명 로드 완료")
 
-# --- 5. [v9.2] 3단계 우선순위 배정 ---
+# --- 5. [v15.0] 3단계 우선순위 배정 ---
 def run_assignment(df, class_names):
     df = df.copy()
-    conflict_pairs, _, _ = build_conflict_map(df)
+    conflict_pairs, _, together_pairs, _ = build_conflict_map(df)
     
     # 반 초기화
     classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}} for c in class_names}
@@ -375,75 +391,94 @@ def run_assignment(df, class_names):
     # --- 단계별 배정 ---
     group_1 = df[high_score_mask].sort_values(by=['conflict_degree', '곤란도점수', '이름'], ascending=[False, False, True])
     for _, row in group_1.iterrows():
-        assign_with_priority(row, classes, conflict_pairs, priority_mode="SCORE_BALANCE", df=df)
+        assign_with_priority(row, classes, conflict_pairs, together_pairs, "SCORE_BALANCE", df)
         
     group_2 = df[regular_mask].sort_values(by=['conflict_degree', '성별', '이름'], ascending=[False, True, True])
     for _, row in group_2.iterrows():
-        assign_with_priority(row, classes, conflict_pairs, priority_mode="REAL_COUNT_BALANCE", df=df)
+        assign_with_priority(row, classes, conflict_pairs, together_pairs, "REAL_COUNT_BALANCE", df)
         
     group_3 = df[transfer_mask].sort_values(by=['conflict_degree'], ascending=[False])
     for _, row in group_3.iterrows():
-        assign_with_priority(row, classes, conflict_pairs, priority_mode="CUSHION_BALANCE", df=df)
+        assign_with_priority(row, classes, conflict_pairs, together_pairs, "CUSHION_BALANCE", df)
         
+    # 결과 반영
     for c_name, c_info in classes.items():
         for s_id in c_info['students']:
             df.loc[df['Internal_ID'] == s_id, '배정반'] = c_name
             
     return df
 
-def assign_with_priority(row, classes, conflict_pairs, priority_mode, df):
+def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_mode, df):
     s_id = row['Internal_ID']
     s_score = row['곤란도점수']
     s_gender = row['성별']
     s_reason = row['곤란도']
+    is_transfer = row['is_transfer']
     
-    my_enemies = set()
-    for pair in conflict_pairs:
+    # 합반 희망 확인
+    forced_class = None
+    for pair in together_pairs:
         if s_id in pair:
-            my_enemies.update(pair)
-            
-    class_costs = []
-    transfer_ids = set(df[df['is_transfer']].Internal_ID.values)
-
-    for c_name, c_info in classes.items():
-        cost = 0
-        if not my_enemies.isdisjoint(c_info['conflict_ids']):
-            cost += float('inf')
-            
-        if priority_mode == "SCORE_BALANCE":
-            cost += (c_info['score_sum'] * 1000)
-            if s_reason and s_reason in c_info['reasons']: cost += 500
-            cost += (len(c_info['students']) * 10) 
-            
-        elif priority_mode == "REAL_COUNT_BALANCE":
-            real_cnt = len([sid for sid in c_info['students'] if sid not in transfer_ids])
-            cost += (real_cnt * 10000)
-            g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
-            cost += (g_cnt * 1000)
-            
-        elif priority_mode == "CUSHION_BALANCE":
-            cost += (len(c_info['students']) * 1000)
-            g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
-            cost += (g_cnt * 500)
-            
-        class_costs.append((cost, c_name))
-        
-    class_costs.sort(key=lambda x: x[0])
+            others = [x for x in pair if x != s_id]
+            for c_name, c_info in classes.items():
+                if others[0] in c_info['students']:
+                    forced_class = c_name
+                    break
+        if forced_class: break
     
-    if class_costs[0][0] == float('inf'):
-        best_class = random.choice(list(classes.keys()))
+    if forced_class:
+        best_class = forced_class
     else:
-        best_class = class_costs[0][1]
+        my_enemies = set()
+        for pair in conflict_pairs:
+            if s_id in pair:
+                my_enemies.update(pair)
+                
+        class_costs = []
+        transfer_ids = set(df[df['is_transfer']].Internal_ID.values)
+
+        for c_name, c_info in classes.items():
+            cost = 0
+            if not my_enemies.isdisjoint(c_info['conflict_ids']):
+                cost += float('inf')
+                
+            if priority_mode == "SCORE_BALANCE":
+                cost += (c_info['score_sum'] * 1000)
+                if s_reason and s_reason in c_info['reasons']: cost += 500
+                cost += (len(c_info['students']) * 10) 
+                
+            elif priority_mode == "REAL_COUNT_BALANCE":
+                real_cnt = len([sid for sid in c_info['students'] if sid not in transfer_ids])
+                cost += (real_cnt * 10000)
+                g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
+                cost += (g_cnt * 1000)
+                
+            elif priority_mode == "CUSHION_BALANCE":
+                cost += (len(c_info['students']) * 1000)
+                g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
+                cost += (g_cnt * 500)
+                
+            class_costs.append((cost, c_name))
+            
+        class_costs.sort(key=lambda x: x[0])
+        
+        if class_costs[0][0] == float('inf'):
+            best_class = random.choice(list(classes.keys()))
+        else:
+            best_class = class_costs[0][1]
         
     c = classes[best_class]
     c['students'].append(s_id)
-    c['score_sum'] += s_score
     c['conflict_ids'].add(s_id)
+    
     if s_gender == '남': c['m'] += 1
     else: c['f'] += 1
-    if s_reason:
-        if s_reason not in c['reasons']: c['reasons'][s_reason] = 0
-        c['reasons'][s_reason] += 1
+    
+    if not is_transfer:
+        c['score_sum'] += s_score
+        if s_reason:
+            if s_reason not in c['reasons']: c['reasons'][s_reason] = 0
+            c['reasons'][s_reason] += 1
 
 
 st.write("")
@@ -460,7 +495,7 @@ if 'assigned_data' in st.session_state:
     st.divider()
     
     df = st.session_state['assigned_data']
-    conflict_pairs, separation_pairs, _ = build_conflict_map(df)
+    conflict_pairs, separation_pairs, together_pairs, _ = build_conflict_map(df)
     current_map = df.set_index('Internal_ID')['배정반'].to_dict()
     
     df['gender_rank'] = df['성별'].map({'여': 1, '남': 2}).fillna(3)
@@ -472,6 +507,7 @@ if 'assigned_data' in st.session_state:
         icon = ""
         
         is_separated_ok = False
+        # 1. 분리희망 체크
         for pair in separation_pairs:
             if s_id in pair:
                 others = [x for x in pair if x != s_id]
@@ -482,10 +518,9 @@ if 'assigned_data' in st.session_state:
                         icon = "⚡"
                         is_separated_ok = False
                         break
-        
-        if is_separated_ok and icon != "⚡":
-            icon = "✅" 
+        if is_separated_ok and icon != "⚡": icon = "✅" 
 
+        # 2. 일반 충돌
         for pair in conflict_pairs:
             if s_id in pair:
                 others = [x for x in pair if x != s_id]
@@ -493,6 +528,15 @@ if 'assigned_data' in st.session_state:
                     icon = "⚡"
                     break
         
+        # 3. 합반 희망 체크
+        for pair in together_pairs:
+            if s_id in pair:
+                others = [x for x in pair if x != s_id]
+                if others and others[0] in current_map:
+                    if current_map[others[0]] != my_cls:
+                        icon = "⚡"
+                        break
+
         df.at[idx, 'display_icon'] = icon
 
     # ==========================================
@@ -588,15 +632,22 @@ if 'assigned_data' in st.session_state:
             for j in range(max_len):
                 if j < len(f_rows):
                     r = f_rows.iloc[j]
-                    bg_class = "bg-male" if r['성별'] == '남' else "bg-female"
+                    bg_class = "bg-female"
                     conflict = "card-conflict" if "⚡" in r['display_icon'] else ""
                     t_tag = "<span class='tag-transfer-front'>전출</span>" if r['is_transfer'] else ""
                     try: p_val = str(int(float(r['현재반']))) if pd.notna(r['현재반']) and str(r['현재반']).strip() else ""; p_disp = f"<span class='prev-class'>({p_val})</span>" if p_val else ""
                     except: p_disp = ""
                     note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
                     if sc > 0: note += f"({sc})"
-                    rem = str(r['비고']) if pd.notna(r['비고']) else ""
-                    if r['is_transfer']: rem = rem.replace("전출예정", "").replace("전출", "").strip()
+                    rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
+                    
+                    # [NEW] 쌍생아 표시 로직 (분반/합반)
+                    if "쌍생아" in rem and pd.notna(r['쌍생아반편성']):
+                        if r['쌍생아반편성'] == "분반희망":
+                            rem = rem.replace("쌍생아", "쌍생아(분반)")
+                        elif r['쌍생아반편성'] == "합반희망":
+                            rem = rem.replace("쌍생아", "쌍생아(합반)")
+                            
                     if rem: note = f"{note} {rem}" if note else rem
                     
                     sep_mark = ""
@@ -608,15 +659,22 @@ if 'assigned_data' in st.session_state:
 
                 if j < len(m_rows):
                     r = m_rows.iloc[j]
-                    bg_class = "bg-male" if r['성별'] == '남' else "bg-female"
+                    bg_class = "bg-male"
                     conflict = "card-conflict" if "⚡" in r['display_icon'] else ""
                     t_tag = "<span class='tag-transfer-front'>전출</span>" if r['is_transfer'] else ""
                     try: p_val = str(int(float(r['현재반']))) if pd.notna(r['현재반']) and str(r['현재반']).strip() else ""; p_disp = f"<span class='prev-class'>({p_val})</span>" if p_val else ""
                     except: p_disp = ""
                     note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
                     if sc > 0: note += f"({sc})"
-                    rem = str(r['비고']) if pd.notna(r['비고']) else ""
-                    if r['is_transfer']: rem = rem.replace("전출예정", "").replace("전출", "").strip()
+                    rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
+                    
+                    # [NEW] 쌍생아 표시 로직 (분반/합반)
+                    if "쌍생아" in rem and pd.notna(r['쌍생아반편성']):
+                        if r['쌍생아반편성'] == "분반희망":
+                            rem = rem.replace("쌍생아", "쌍생아(분반)")
+                        elif r['쌍생아반편성'] == "합반희망":
+                            rem = rem.replace("쌍생아", "쌍생아(합반)")
+
                     if rem: note = f"{note} {rem}" if note else rem
                     
                     sep_mark = ""
@@ -634,83 +692,78 @@ if 'assigned_data' in st.session_state:
     st.divider()
     st.subheader("🔀 1:1 학생 교환 및 이동 센터")
     
-    # [수정] 박스 감싸기 (st.container 사용)
-    with st.container(border=True):
-        if 'swap_source_class' not in st.session_state: st.session_state['swap_source_class'] = target_class_names[0]
-        if 'swap_target_class' not in st.session_state: st.session_state['swap_target_class'] = target_class_names[1] if len(target_class_names) > 1 else target_class_names[0]
+    st.markdown("<div class='swap-container'>", unsafe_allow_html=True)
+    
+    if 'swap_source_class' not in st.session_state: st.session_state['swap_source_class'] = target_class_names[0]
+    if 'swap_target_class' not in st.session_state: st.session_state['swap_target_class'] = target_class_names[1] if len(target_class_names) > 1 else target_class_names[0]
 
-        # 5단 컬럼 레이아웃 (여백 | 소스 | 액션 | 타겟 | 여백)
-        c1, col_swap_left, col_swap_action, col_swap_right, c5 = st.columns([1, 2.5, 0.5, 2.5, 1])
+    c1, col_swap_left, col_swap_action, col_swap_right, c5 = st.columns([1, 2.5, 0.5, 2.5, 1])
 
-        with col_swap_left:
-            st.markdown("<div class='swap-label'>📤 보내는 반 (Source)</div>", unsafe_allow_html=True)
-            s_cls = st.selectbox("반 선택 (보냄)", target_class_names, key="s_cls_key", label_visibility="collapsed")
-            
-            s_students_df = df[df['배정반'] == s_cls].sort_values(['이름'])
-            s_student_list = s_students_df['이름'].tolist()
-            
-            s_std_name = st.selectbox("학생 선택 (보냄)", s_student_list, key="s_std_key", label_visibility="collapsed") if s_student_list else None
-            
-            if s_std_name:
-                s_row = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)].iloc[0]
-                st.info(f"👤 {s_row['성별']} | 📊 {int(s_row['곤란도점수'])}점 | 📝 {s_row['곤란도']}")
+    with col_swap_left:
+        st.markdown("<div class='swap-label'>📤 보내는 반 (Source)</div>", unsafe_allow_html=True)
+        s_cls = st.selectbox("반 선택 (보냄)", target_class_names, key="s_cls_key", label_visibility="collapsed")
+        
+        s_students_df = df[df['배정반'] == s_cls].sort_values(['이름'])
+        s_student_list = s_students_df['이름'].tolist()
+        
+        s_std_name = st.selectbox("학생 선택 (보냄)", s_student_list, key="s_std_key", label_visibility="collapsed") if s_student_list else None
+        
+        if s_std_name:
+            s_row = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)].iloc[0]
+            st.info(f"👤 {s_row['성별']} | 📊 {int(s_row['곤란도점수'])}점 | 📝 {s_row['곤란도']}")
 
-        with col_swap_right:
-            st.markdown("<div class='swap-label'>📥 받는 반 (Target)</div>", unsafe_allow_html=True)
-            t_cls = st.selectbox("반 선택 (받음)", target_class_names, index=1 if len(target_class_names)>1 else 0, key="t_cls_key", label_visibility="collapsed")
-            
-            t_students_df = df[df['배정반'] == t_cls].sort_values(['이름'])
-            t_student_list = ["(선택 안 함 - 이동만 하기)"] + t_students_df['이름'].tolist()
-            
-            t_std_name = st.selectbox("학생 선택 (받음/교환)", t_student_list, key="t_std_key", label_visibility="collapsed")
-            
-            if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
-                t_row = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)].iloc[0]
-                st.info(f"👤 {t_row['성별']} | 📊 {int(t_row['곤란도점수'])}점 | 📝 {t_row['곤란도']}")
-            elif t_std_name == "(선택 안 함 - 이동만 하기)":
-                st.success("👉 왼쪽 학생을 이 반으로 보냅니다.")
+    with col_swap_right:
+        st.markdown("<div class='swap-label'>📥 받는 반 (Target)</div>", unsafe_allow_html=True)
+        t_cls = st.selectbox("반 선택 (받음)", target_class_names, index=1 if len(target_class_names)>1 else 0, key="t_cls_key", label_visibility="collapsed")
+        
+        t_students_df = df[df['배정반'] == t_cls].sort_values(['이름'])
+        t_student_list = ["(선택 안 함 - 이동만 하기)"] + t_students_df['이름'].tolist()
+        
+        t_std_name = st.selectbox("학생 선택 (받음/교환)", t_student_list, key="t_std_key", label_visibility="collapsed")
+        
+        if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
+            t_row = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)].iloc[0]
+            st.info(f"👤 {t_row['성별']} | 📊 {int(t_row['곤란도점수'])}점 | 📝 {t_row['곤란도']}")
+        elif t_std_name == "(선택 안 함 - 이동만 하기)":
+            st.success("👉 왼쪽 학생을 이 반으로 보냅니다.")
 
-        with col_swap_action:
-            st.write(""); st.write(""); st.write("") 
-            if st.button("🔄", type="primary", use_container_width=True, help="실행"):
-                if s_cls == t_cls:
-                    st.warning("같은 반!")
-                elif not s_std_name:
-                    st.warning("학생선택!")
+    with col_swap_action:
+        st.write(""); st.write(""); st.write("") 
+        if st.button("🔄", type="primary", use_container_width=True, help="실행"):
+            if s_cls == t_cls:
+                st.warning("같은 반!")
+            elif not s_std_name:
+                st.warning("학생선택!")
+            else:
+                s_id = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)]['Internal_ID'].values[0]
+                
+                if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
+                    t_id = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)]['Internal_ID'].values[0]
+                    st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
+                    st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == t_id, '배정반'] = s_cls
+                    st.toast(f"🔄 {s_std_name} ↔ {t_std_name} 교환 완료!")
                 else:
-                    s_id = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)]['Internal_ID'].values[0]
-                    
-                    if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
-                        t_id = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)]['Internal_ID'].values[0]
-                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
-                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == t_id, '배정반'] = s_cls
-                        st.toast(f"🔄 {s_std_name} ↔ {t_std_name} 교환 완료!")
-                    else:
-                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
-                        st.toast(f"👉 {s_std_name} 이동 완료!")
-                    
-                    time.sleep(0.5)
-                    st.rerun()
+                    st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
+                    st.toast(f"👉 {s_std_name} 이동 완료!")
+                
+                time.sleep(0.5)
+                st.rerun()
     
     st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대 (Expander로 숨김 처리)
     st.write("")
-    # [수정] 제목 변경: (구버전) 제거
     with st.expander("📋 전체 명단 상세 편집 열기"):
-        # [수정] 필터 3개로 간소화 (이름 검색, 배정반, 현재반)
         col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
-        
         with col_f1: search_name = st.text_input("🔍 이름 검색")
         with col_f2: 
-            filter_new_cls = st.multiselect("배정반", target_class_names) # 용어 통일
+            filter_new_cls = st.multiselect("배정반", target_class_names)
         with col_f3: 
             prev_classes = sorted([str(int(float(x))) for x in df['현재반'].unique() if pd.notna(x) and str(x).strip() != ""])
-            filter_prev_cls = st.multiselect("현재반", prev_classes) # 용어 통일
+            filter_prev_cls = st.multiselect("현재반", prev_classes)
         
         view_df = df.copy()
         
-        # [안전장치] 키 오류 방지를 위해 gender_rank 강제 재생성
         if 'gender_rank' not in view_df.columns:
             view_df['gender_rank'] = view_df['성별'].map({'여': 1, '남': 2}).fillna(3)
         
