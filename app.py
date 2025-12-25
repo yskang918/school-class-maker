@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v18.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v19.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -111,12 +111,15 @@ st.markdown("""
         line-height: 1.2;
     }
     
+    /* [수정] 뱃지 스타일 정의 */
     .badge-in-card {
-        display: inline-block; padding: 0px 2px; border-radius: 3px; 
+        display: inline-block; padding: 0px 3px; border-radius: 3px; 
         font-size: 9px; font-weight: bold; margin-right: 2px; margin-bottom: 1px;
+        vertical-align: middle;
     }
-    .badge-transfer { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; }
-    .badge-separation { background-color: #FFF9C4; color: #F57F17; border: 1px solid #FBC02D; }
+    .badge-transfer { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; } /* 파랑 */
+    .badge-separation { background-color: #FFF9C4; color: #F57F17; border: 1px solid #FBC02D; } /* 주황/노랑 */
+    .badge-twin { background-color: #F1F8E9; color: #33691E; border: 1px solid #DCEDC8; } /* [NEW] 연두 */
 
     .header-title-text { font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap; }
     
@@ -126,7 +129,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v18.0)")
+st.title("🏫 반편성 프로그램 (v19.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -220,44 +223,33 @@ def build_conflict_map(df):
 
     return conflict_pairs, separation_pairs, together_pairs, lookup
 
-# [NEW] 관계 자동 동기화 (Auto-Sync) 함수
+# [NEW] 관계 자동 동기화 (Auto-Sync)
 def sync_relationships(df):
-    # 1. 쌍생아 정보 동기화
     for idx, row in df.iterrows():
         if pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "":
             target_name = row['쌍생아_이름']
             target_class = str(int(float(row['쌍생아_반']))) if pd.notna(row['쌍생아_반']) else ""
-            
-            # 대상 찾기 (이름과 반으로 매칭)
             targets = df[ (df['이름'] == target_name) & (df['현재반'].astype(str).replace(r'\.0$', '', regex=True) == target_class) ]
-            
             if not targets.empty:
                 t_idx = targets.index[0]
-                # 대상의 쌍생아 정보가 비어있다면 채워넣기
                 if pd.isna(df.at[t_idx, '쌍생아_이름']) or str(df.at[t_idx, '쌍생아_이름']).strip() == "":
                     df.at[t_idx, '쌍생아_이름'] = row['이름']
                     df.at[t_idx, '쌍생아_반'] = row['현재반']
                     df.at[t_idx, '쌍생아반편성'] = row['쌍생아반편성']
-                    # 비고란에도 표시
                     if "쌍생아" not in str(df.at[t_idx, '비고']):
                         df.at[t_idx, '비고'] = (str(df.at[t_idx, '비고']) + " 쌍생아").strip()
 
-    # 2. 분리희망 정보 동기화
     for idx, row in df.iterrows():
         if pd.notna(row['분리희망학생_이름']) and str(row['분리희망학생_이름']).strip() != "":
             target_name = row['분리희망학생_이름']
             target_class = str(int(float(row['분리희망학생_반']))) if pd.notna(row['분리희망학생_반']) else ""
-            
             targets = df[ (df['이름'] == target_name) & (df['현재반'].astype(str).replace(r'\.0$', '', regex=True) == target_class) ]
-            
             if not targets.empty:
                 t_idx = targets.index[0]
-                # 대상의 분리희망 정보가 비어있다면 채워넣기 (상호 분리)
                 if pd.isna(df.at[t_idx, '분리희망학생_이름']) or str(df.at[t_idx, '분리희망학생_이름']).strip() == "":
                     df.at[t_idx, '분리희망학생_이름'] = row['이름']
                     df.at[t_idx, '분리희망학생_반'] = row['현재반']
                     df.at[t_idx, '분리희망학생_번호'] = row['번호']
-    
     return df
 
 # --- 4. 파일 업로드 ---
@@ -294,7 +286,7 @@ if uploaded_files:
             df['is_transfer'] = df['비고'].str.contains('전출', na=False)
             df['Internal_ID'] = [f"ID_{i}" for i in range(len(df))]
             
-            # [중요] 관계 자동 동기화 적용
+            # 관계 자동 동기화
             df = sync_relationships(df)
             
             st.session_state['student_data'] = df
@@ -492,9 +484,17 @@ if 'assigned_data' in st.session_state:
                     note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
                     if sc > 0: note += f"({sc})"
                     rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
-                    if "쌍생아" in rem and pd.notna(r['쌍생아반편성']):
-                        if r['쌍생아반편성'] == "분반희망": rem = rem.replace("쌍생아", "쌍생아(분반)")
-                        elif r['쌍생아반편성'] == "합반희망": rem = rem.replace("쌍생아", "쌍생아(합반)")
+                    
+                    # [NEW] 쌍생아 뱃지 로직
+                    if "쌍생아" in rem:
+                        twin_text = "쌍생아"
+                        if pd.notna(r['쌍생아반편성']):
+                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
+                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
+                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
+                        # 비고에서 텍스트 제거 (중복 방지)
+                        rem = rem.replace("쌍생아", "").strip()
+
                     if rem: note = f"{note} {rem}" if note else rem
                     
                     final_note = badges_str + note
@@ -515,9 +515,17 @@ if 'assigned_data' in st.session_state:
                     note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
                     if sc > 0: note += f"({sc})"
                     rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
-                    if "쌍생아" in rem and pd.notna(r['쌍생아반편성']):
-                        if r['쌍생아반편성'] == "분반희망": rem = rem.replace("쌍생아", "쌍생아(분반)")
-                        elif r['쌍생아반편성'] == "합반희망": rem = rem.replace("쌍생아", "쌍생아(합반)")
+                    
+                    # [NEW] 쌍생아 뱃지 로직
+                    if "쌍생아" in rem:
+                        twin_text = "쌍생아"
+                        if pd.notna(r['쌍생아반편성']):
+                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
+                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
+                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
+                        # 비고에서 텍스트 제거
+                        rem = rem.replace("쌍생아", "").strip()
+
                     if rem: note = f"{note} {rem}" if note else rem
                     
                     final_note = badges_str + note
@@ -580,7 +588,7 @@ if 'assigned_data' in st.session_state:
         view_df = df.copy()
         if 'gender_rank' not in view_df.columns: view_df['gender_rank'] = view_df['성별'].map({'여': 1, '남': 2}).fillna(3)
         
-        # [NEW] 상태 칼럼 생성 (아이콘 표시 대체)
+        # 상태 칼럼 업데이트 (쌍생아 뱃지 대응)
         def get_status_str(row):
             statuses = []
             if row['is_transfer']: statuses.append("🟦 전출")
@@ -590,9 +598,9 @@ if 'assigned_data' in st.session_state:
             rem = str(row['비고'])
             if "쌍생아" in rem or (pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != ""):
                 mode = row['쌍생아반편성'] if pd.notna(row['쌍생아반편성']) else ""
-                if mode == "분반희망": statuses.append("👯 쌍생아(분반)")
-                elif mode == "합반희망": statuses.append("👯 쌍생아(합반)")
-                else: statuses.append("👯 쌍생아")
+                if mode == "분반희망": statuses.append("🟩 쌍생아(분반)")
+                elif mode == "합반희망": statuses.append("🟩 쌍생아(합반)")
+                else: statuses.append("🟩 쌍생아")
             
             return " ".join(statuses)
 
@@ -605,7 +613,6 @@ if 'assigned_data' in st.session_state:
         if filter_new_cls: view_df = view_df[view_df['배정반'].isin(filter_new_cls)]
         view_df = view_df.sort_values(['배정반', 'gender_rank', 'is_transfer', '이름'])
         
-        # [수정] display_icon 제거, 상태 칼럼 추가
         editor_cols = ['현재반', '이름', '상태', '성별', '배정반', '곤란도', '곤란도점수', '분리희망학생_이름', '분리희망학생_반', '비고', 'Internal_ID']
         
         edited_df = st.data_editor(view_df[editor_cols], key="main_editor", hide_index=True, column_config={
