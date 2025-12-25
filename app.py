@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v23.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v24.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -123,13 +123,14 @@ st.markdown("""
 
     .header-title-text { font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap; }
     
-    .swap-container { background-color: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #E0E0E0; }
     .swap-label { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 5px; }
+    
+    /* Expander 및 Container 스타일 */
     div[data-testid="stExpander"] { border: 1px solid #ddd; border-radius: 8px; background-color: white; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v23.0)")
+st.title("🏫 반편성 프로그램 (v24.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -223,7 +224,7 @@ def build_conflict_map(df):
 
     return conflict_pairs, separation_pairs, together_pairs, lookup
 
-# [NEW] 관계 자동 동기화 (Auto-Sync)
+# 관계 자동 동기화 (Auto-Sync)
 def sync_relationships(df):
     for idx, row in df.iterrows():
         if pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "":
@@ -304,27 +305,33 @@ def run_assignment(df, class_names):
         for p in pair: conflict_counts[p] += 1
     df['conflict_degree'] = df['Internal_ID'].map(conflict_counts)
     
+    # [NEW] 출신 반 정보 미리 매핑 (성능 최적화)
+    id_to_prev = df.set_index('Internal_ID')['현재반'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() else "").to_dict()
+
     transfer_mask = df['is_transfer'] == True
     high_score_mask = (df['곤란도점수'] > 0) & (~transfer_mask)
     regular_mask = (df['곤란도점수'] == 0) & (~transfer_mask)
     
     # 1. 고득점자
     group_1 = df[high_score_mask].sort_values(by=['conflict_degree', '곤란도점수', '이름'], ascending=[False, False, True])
-    for _, row in group_1.iterrows(): assign_with_priority(row, classes, conflict_pairs, together_pairs, "SCORE_BALANCE", df)
+    for _, row in group_1.iterrows(): assign_with_priority(row, classes, conflict_pairs, together_pairs, "SCORE_BALANCE", df, id_to_prev)
     # 2. 일반
     group_2 = df[regular_mask].sort_values(by=['conflict_degree', '성별', '이름'], ascending=[False, True, True])
-    for _, row in group_2.iterrows(): assign_with_priority(row, classes, conflict_pairs, together_pairs, "REAL_COUNT_BALANCE", df)
+    for _, row in group_2.iterrows(): assign_with_priority(row, classes, conflict_pairs, together_pairs, "REAL_COUNT_BALANCE", df, id_to_prev)
     # 3. 전출
     group_3 = df[transfer_mask].sort_values(by=['conflict_degree'], ascending=[False])
-    for _, row in group_3.iterrows(): assign_with_priority(row, classes, conflict_pairs, together_pairs, "CUSHION_BALANCE", df)
+    for _, row in group_3.iterrows(): assign_with_priority(row, classes, conflict_pairs, together_pairs, "CUSHION_BALANCE", df, id_to_prev)
         
     for c_name, c_info in classes.items():
         for s_id in c_info['students']: df.loc[df['Internal_ID'] == s_id, '배정반'] = c_name
     return df
 
-def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_mode, df):
+def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_mode, df, id_to_prev):
     s_id = row['Internal_ID']; s_score = row['곤란도점수']; s_gender = row['성별']; s_reason = row['곤란도']
     
+    # 현재 학생의 이전 반
+    s_prev = id_to_prev.get(s_id, "")
+
     forced_class = None
     for pair in together_pairs:
         if s_id in pair:
@@ -360,6 +367,15 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                 cost += (len(c_info['students']) * 1000)
                 g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
                 cost += (g_cnt * 500)
+            
+            # [NEW] 출신 반 분산 벌점 (Penalty)
+            if s_prev:
+                same_origin_cnt = 0
+                for exist_id in c_info['students']:
+                    if id_to_prev.get(exist_id) == s_prev:
+                        same_origin_cnt += 1
+                cost += (same_origin_cnt * 100) # 벌점 부여 (낮은 가중치)
+
             class_costs.append((cost, c_name))
             
         class_costs.sort(key=lambda x: x[0])
@@ -416,15 +432,12 @@ if 'assigned_data' in st.session_state:
     col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.8, 1.5, 4.5, 4], gap="small")
     with col_h_1: st.markdown("<div class='header-title-text'>👀 학급별 구성</div>", unsafe_allow_html=True)
     
-    # [수정] 엑셀 저장 (새 번호 부여)
+    # 엑셀 저장 (새 번호 부여)
     with col_h_2:
         output_assigned = io.BytesIO()
         export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
         
-        # 1. 정렬: 배정반 -> 전출여부(False먼저) -> 성별 -> 이름
         save_df_assigned = df.sort_values(['배정반', 'is_transfer', 'gender_rank', '이름']).copy()
-        
-        # 2. 번호 재부여 (반별 그룹화하여 1부터 순차 번호 생성)
         save_df_assigned['번호'] = save_df_assigned.groupby('배정반').cumcount() + 1
         
         valid_cols = [c for c in export_cols if c in save_df_assigned.columns]
@@ -560,9 +573,9 @@ if 'assigned_data' in st.session_state:
                 else: cards_html += """<div class="empty-card"></div>"""
             st.markdown(f"""<div class="student-grid">{cards_html}</div>""", unsafe_allow_html=True)
 
-    # 2. 1:1 교환 및 이동 센터
+    # 2. 1:1 학생 교환
     st.divider()
-    st.subheader("🔀 1:1 학생 교환 및 이동 센터")
+    st.subheader("🔀 1:1 학생 교환")
     
     with st.container(border=True):
         if 'swap_source_class' not in st.session_state: st.session_state['swap_source_class'] = target_class_names[0]
@@ -602,7 +615,6 @@ if 'assigned_data' in st.session_state:
                         st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
                         st.toast(f"👉 {s_std_name} 이동 완료!")
                     time.sleep(0.5); st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
