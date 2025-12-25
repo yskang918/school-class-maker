@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v20.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v21.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -119,7 +119,7 @@ st.markdown("""
     }
     .badge-transfer { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; } 
     .badge-separation { background-color: #FFF9C4; color: #F57F17; border: 1px solid #FBC02D; } 
-    .badge-twin { background-color: #F1F8E9; color: #33691E; border: 1px solid #DCEDC8; }
+    .badge-twin { background-color: #F1F8E9 !important; color: #33691E !important; border: 1px solid #DCEDC8 !important; }
 
     .header-title-text { font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap; }
     
@@ -130,7 +130,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v20.0)")
+st.title("🏫 반편성 프로그램 (v21.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -463,7 +463,6 @@ if 'assigned_data' in st.session_state:
         count_html = f"<div class='count-text'>여 {f_total}명 / 남 {m_total}명</div><div class='count-sub'>(전출제외: 여 {f_real} / 남 {m_real})</div>"
 
         with content_cols[i]:
-            # [수정] 곤란도: {score}점 으로 텍스트 변경
             st.markdown(f"""<div class="class-header"><div class="class-title">{cls}반 <span class="real-count-tag">({real_cnt}명)</span></div><div class="score-text">곤란도: {score}점</div>{count_html}<div class="badge-container">{badges_html}</div></div>""", unsafe_allow_html=True)
             
             f_rows = c_df[c_df['성별'] == '여'].sort_values(['is_transfer', '이름'])
@@ -486,9 +485,16 @@ if 'assigned_data' in st.session_state:
                     note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
                     if sc > 0: note += f"({sc})"
                     rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
-                    if "쌍생아" in rem and pd.notna(r['쌍생아반편성']):
-                        if r['쌍생아반편성'] == "분반희망": rem = rem.replace("쌍생아", "쌍생아(분반)")
-                        elif r['쌍생아반편성'] == "합반희망": rem = rem.replace("쌍생아", "쌍생아(합반)")
+                    
+                    # [확인] 쌍생아 뱃지 로직 (연두색 박스 복구)
+                    if "쌍생아" in rem:
+                        twin_text = "쌍생아"
+                        if pd.notna(r['쌍생아반편성']):
+                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
+                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
+                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
+                        rem = rem.replace("쌍생아", "").strip()
+
                     if rem: note = f"{note} {rem}" if note else rem
                     
                     final_note = badges_str + note
@@ -509,9 +515,16 @@ if 'assigned_data' in st.session_state:
                     note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
                     if sc > 0: note += f"({sc})"
                     rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
-                    if "쌍생아" in rem and pd.notna(r['쌍생아반편성']):
-                        if r['쌍생아반편성'] == "분반희망": rem = rem.replace("쌍생아", "쌍생아(분반)")
-                        elif r['쌍생아반편성'] == "합반희망": rem = rem.replace("쌍생아", "쌍생아(합반)")
+                    
+                    # [확인] 쌍생아 뱃지 로직
+                    if "쌍생아" in rem:
+                        twin_text = "쌍생아"
+                        if pd.notna(r['쌍생아반편성']):
+                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
+                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
+                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
+                        rem = rem.replace("쌍생아", "").strip()
+
                     if rem: note = f"{note} {rem}" if note else rem
                     
                     final_note = badges_str + note
@@ -523,7 +536,7 @@ if 'assigned_data' in st.session_state:
     st.divider()
     st.subheader("🔀 1:1 학생 교환 및 이동 센터")
     
-    # [수정] st.markdown("<div class='swap-container'>", ...) 제거하고 순정 st.container 사용
+    # 순정 컨테이너 사용 (유령 박스 방지)
     with st.container(border=True):
         if 'swap_source_class' not in st.session_state: st.session_state['swap_source_class'] = target_class_names[0]
         if 'swap_target_class' not in st.session_state: st.session_state['swap_target_class'] = target_class_names[1] if len(target_class_names) > 1 else target_class_names[0]
@@ -562,6 +575,7 @@ if 'assigned_data' in st.session_state:
                         st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
                         st.toast(f"👉 {s_std_name} 이동 완료!")
                     time.sleep(0.5); st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
@@ -583,9 +597,9 @@ if 'assigned_data' in st.session_state:
             rem = str(row['비고'])
             if "쌍생아" in rem or (pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != ""):
                 mode = row['쌍생아반편성'] if pd.notna(row['쌍생아반편성']) else ""
-                if mode == "분반희망": statuses.append("👯 쌍생아(분반)")
-                elif mode == "합반희망": statuses.append("👯 쌍생아(합반)")
-                else: statuses.append("👯 쌍생아")
+                if mode == "분반희망": statuses.append("🟩 쌍생아(분반)")
+                elif mode == "합반희망": statuses.append("🟩 쌍생아(합반)")
+                else: statuses.append("🟩 쌍생아")
             return " ".join(statuses)
 
         view_df['상태'] = view_df.apply(get_status_str, axis=1)
