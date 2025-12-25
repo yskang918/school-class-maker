@@ -29,12 +29,16 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v29.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v30.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
 <style>
     .stApp { background-color: #F4F6F9; }
+    
+    /* [중요] 한국어 단어 단위 줄바꿈 적용 (글자 잘림 방지) */
+    * { word-break: keep-all !important; }
+
     .block-container { 
         padding-top: 2rem; 
         padding-bottom: 5rem; 
@@ -123,33 +127,33 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# [NEW] 팝업 함수 (문구 수정)
+# [NEW] 팝업 함수 (가독성 개선 - 줄바꿈 및 인용구 적용)
 @st.dialog("👋 환영합니다! 자동 반편성 기능 안내")
 def show_help_popup():
     st.markdown("""
     **1. ⚡ 분리희망학생 자동 반편성**
-    서로 피하고 싶은 학생은 1순위로 다른 반에 배정합니다.
+    > 서로 피하고 싶은 학생은 **1순위로** 다른 반에 배정합니다.
     
     **2. 👯‍♀️ 쌍생아 분반/합반 자동 반편성**
-    합반 희망은 무조건 같은 반으로, 분반 희망은 무조건 다른 반으로 배정합니다.
+    > 합반 희망은 무조건 같은 반으로, 분반 희망은 무조건 다른 반으로 배정합니다.
     
     **3. 📛 동명이인 자동 반편성**
-    이름이 같은 학생이 한 반에 배정되지 않도록 자동으로 흩어놓습니다.
+    > 이름이 같은 학생이 한 반에 배정되지 않도록 자동으로 흩어놓습니다.
     
     **4. ⚖️ 성별 및 인원 균형**
-    남학생과 여학생의 비율, 학급별 총 인원수를 최대한 균등하게 맞춥니다.
+    > 남학생과 여학생의 비율, 그리고 학급별 총 인원수를 최대한 균등하게 맞춥니다.
     
     **5. 📊 곤란도 점수별 자동 반편성**
-    특정 반에 생활지도나 학습부진 학생이 몰리지 않도록 점수 총합을 분산합니다.
+    > 특정 반에 생활지도나 학습부진 학생이 몰리지 않도록 **점수 총합**을 고르게 분산합니다.
     
     **6. 🏫 출신 학급 안배**
-    이전 학년의 같은 반 친구들이 한 곳에 너무 많이 몰리지 않도록 섞어줍니다.
+    > 이전 학년의 같은 반 친구들이 한 곳에 너무 많이 몰리지 않도록 적절히 섞어줍니다.
     
     **7. 📉 특수/통합 학급 정원 감축**
-    통합학급은 타 학급 대비 학생 수를 적게 배정합니다.
+    > 해당 학급은 타 학급 대비 학생 수를 적게 배정하며, **특수/통합 학생끼리는 한 반에 배정되지 않도록 분산**합니다.
     """)
 
-st.title("🏫 반편성 프로그램 (v29.0)")
+st.title("🏫 반편성 프로그램 (v30.0)")
 
 # 최초 1회 팝업 실행
 if 'first_visit' not in st.session_state:
@@ -197,7 +201,7 @@ with col_down:
     
     st.write("")
     st.write("")
-    # [NEW] 버튼 배치 수정: 도움말 | 양식다운로드
+    # 버튼 배치: 도움말 | 양식다운로드
     c_help, c_down = st.columns([0.8, 1.2])
     with c_help:
         if st.button("❓ 기능설명", use_container_width=True):
@@ -329,7 +333,8 @@ if uploaded_files:
 def run_assignment(df, class_names):
     df = df.copy()
     conflict_pairs, _, together_pairs, _ = build_conflict_map(df)
-    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}, 'virtual_cnt': 0} for c in class_names}
+    # [NEW] has_special 필드 추가 (해당 반에 특수학생이 있는지 여부)
+    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}, 'virtual_cnt': 0, 'has_special': False} for c in class_names}
     
     conflict_counts = {id: 0 for id in df['Internal_ID']}
     for pair in conflict_pairs:
@@ -358,6 +363,9 @@ def run_assignment(df, class_names):
 def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_mode, df, id_to_prev):
     s_id = row['Internal_ID']; s_score = row['곤란도점수']; s_gender = row['성별']; s_reason = row['곤란도']
     s_prev = id_to_prev.get(s_id, "")
+    
+    # [NEW] 특수/통합 학생 여부 확인
+    is_special = "특수" in s_reason or "통합" in s_reason
 
     forced_class = None
     for pair in together_pairs:
@@ -379,8 +387,13 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
 
         for c_name, c_info in classes.items():
             cost = 0
+            # 1. 분리 희망 (절대 회피)
             if not my_enemies.isdisjoint(c_info['conflict_ids']): cost += float('inf')
-                
+            
+            # [NEW] 특수/통합 학생 상호 배제 (절대 회피)
+            if is_special and c_info['has_special']:
+                cost += 1000000 # 100만점 벌점 (강력 분산)
+
             if priority_mode == "SCORE_BALANCE":
                 cost += (c_info['score_sum'] * 1000)
                 if s_reason and s_reason in c_info['reasons']: cost += 500
@@ -403,13 +416,13 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                         same_origin_cnt += 1
                 cost += (same_origin_cnt * 100)
 
-            # [NEW] 전출생 분산 벌점 (한 반에 몰리지 않게)
+            # 전출생 분산 벌점
             if row['is_transfer']:
                 transfer_cnt = 0
                 for exist_id in c_info['students']:
                     if df.loc[df['Internal_ID'] == exist_id, 'is_transfer'].values[0]:
                         transfer_cnt += 1
-                cost += (transfer_cnt * 5000) # 강력한 벌점
+                cost += (transfer_cnt * 5000)
 
             class_costs.append((cost, c_name))
             
@@ -419,9 +432,10 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
     c = classes[best_class]
     c['students'].append(s_id); c['conflict_ids'].add(s_id)
     
-    # [수정] 특수/통합 학생 가중치 완화 (3명분 -> 2명분)
-    if "특수" in s_reason or "통합" in s_reason:
+    # [NEW] 특수/통합 학생 상태 업데이트 및 가중치 (2명분)
+    if is_special:
         c['virtual_cnt'] += 2
+        c['has_special'] = True
     else:
         c['virtual_cnt'] += 1
 
