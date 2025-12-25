@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v26.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v27.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -60,11 +60,11 @@ st.markdown("""
         color: white !important;
         border: none !important;
         font-weight: 700 !important;
-        white-space: pre-wrap !important; /* 강제 줄바꿈 허용 (\n 인식) */
+        white-space: pre-wrap !important; /* 강제 줄바꿈 허용 */
         height: auto !important;
         padding-top: 12px !important;
         padding-bottom: 12px !important;
-        line-height: 1.4 !important; /* 줄 간격 조정 */
+        line-height: 1.4 !important;
     }
 
     /* 드롭다운 및 입력창 테두리 강화 */
@@ -135,7 +135,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v26.0)")
+st.title("🏫 반편성 프로그램 (v27.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -310,7 +310,7 @@ def run_assignment(df, class_names):
         for p in pair: conflict_counts[p] += 1
     df['conflict_degree'] = df['Internal_ID'].map(conflict_counts)
     
-    # [NEW] 출신 반 정보 미리 매핑
+    # 출신 반 정보 미리 매핑
     id_to_prev = df.set_index('Internal_ID')['현재반'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() else "").to_dict()
 
     transfer_mask = df['is_transfer'] == True
@@ -432,13 +432,15 @@ if 'assigned_data' in st.session_state:
         df.at[idx, 'display_icon'] = icon
 
     # 1. 시각화 보드
-    col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.8, 1.5, 4.5, 4], gap="small")
+    # [수정] 버튼 공간 확보를 위해 칼럼 비율 조정 (1.5 : 2.5 : 4.0 : 2.0)
+    col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.5, 2.5, 4.0, 2.0], gap="small")
     with col_h_1: st.markdown("<div class='header-title-text'>👀 학급별 구성</div>", unsafe_allow_html=True)
     
-    # 엑셀 저장 (줄바꿈 수정)
+    # 엑셀 저장
     with col_h_2:
         output_assigned = io.BytesIO()
         export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
+        
         save_df_assigned = df.sort_values(['배정반', 'is_transfer', 'gender_rank', '이름']).copy()
         save_df_assigned['번호'] = save_df_assigned.groupby('배정반').cumcount() + 1
         valid_cols = [c for c in export_cols if c in save_df_assigned.columns]
@@ -469,9 +471,9 @@ if 'assigned_data' in st.session_state:
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
 
         c_btn1, c_btn2 = st.columns(2)
-        # [수정] 강제 줄바꿈 (\n) 삽입
-        c_btn1.download_button("📥 배정반 기준\n명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
-        c_btn2.download_button("📥 현재반 기준\n명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
+        # [수정] 강제 줄바꿈 및 특수 공백 적용
+        c_btn1.download_button("📥 배정반\u00A0기준\n명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
+        c_btn2.download_button("📥 현재반\u00A0기준\n명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
 
     with col_h_3:
         st.markdown("""<div style="margin-top: 10px; font-weight: 600; font-size: 13px; color: #555; white-space: nowrap;">
@@ -613,6 +615,7 @@ if 'assigned_data' in st.session_state:
                         st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
                         st.toast(f"👉 {s_std_name} 이동 완료!")
                     time.sleep(0.5); st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
