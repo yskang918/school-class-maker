@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v27.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v28.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -60,7 +60,7 @@ st.markdown("""
         color: white !important;
         border: none !important;
         font-weight: 700 !important;
-        white-space: pre-wrap !important; /* 강제 줄바꿈 허용 */
+        white-space: pre-wrap !important;
         height: auto !important;
         padding-top: 12px !important;
         padding-bottom: 12px !important;
@@ -86,7 +86,7 @@ st.markdown("""
     .count-text { font-size: 11px; color: #333; font-weight: 700; margin: 2px 0 0 0; line-height: 1.2; white-space: nowrap; }
     .count-sub { font-size: 10px; color: #757575; font-weight: 600; display: block; margin-top: 1px; white-space: nowrap; }
     
-    /* 뱃지 (헤더용) */
+    /* 뱃지 */
     .badge-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 2px; margin-top: 3px; }
     .stat-badge { background-color: #F3E5F5; color: #7B1FA2; border: 1px solid #E1BEE7; border-radius: 4px; padding: 1px 3px; font-size: 9px; font-weight: bold; }
     .transfer-badge { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; border-radius: 4px; padding: 1px 3px; font-size: 9px; font-weight: bold; }
@@ -109,33 +109,60 @@ st.markdown("""
         padding-bottom: 1px; white-space: nowrap;
     }
     .prev-class { font-size: 10px; color: #90A4AE; font-weight: 600; margin-left: 1px; } 
+    .std-note { font-size: 10px; color: #D81B60; font-weight: 700; display: block; margin-top: 2px; line-height: 1.2; }
     
-    .std-note { 
-        font-size: 10px; color: #D81B60; font-weight: 700; 
-        display: block; margin-top: 2px; 
-        line-height: 1.2;
-    }
-    
-    /* 뱃지 스타일 정의 */
-    .badge-in-card {
-        display: inline-block; padding: 0px 3px; border-radius: 3px; 
-        font-size: 9px; font-weight: bold; margin-right: 2px; margin-bottom: 1px;
-        vertical-align: middle;
-    }
+    /* 뱃지 스타일 */
+    .badge-in-card { display: inline-block; padding: 0px 3px; border-radius: 3px; font-size: 9px; font-weight: bold; margin-right: 2px; margin-bottom: 1px; vertical-align: middle; }
     .badge-transfer { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; } 
     .badge-separation { background-color: #FFF9C4; color: #F57F17; border: 1px solid #FBC02D; } 
     .badge-twin { background-color: #F1F8E9 !important; color: #33691E !important; border: 1px solid #DCEDC8 !important; }
 
     .header-title-text { font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap; }
-    
     .swap-label { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 5px; }
-    
-    /* Expander 및 Container 스타일 */
     div[data-testid="stExpander"] { border: 1px solid #ddd; border-radius: 8px; background-color: white; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v27.0)")
+# [NEW] 팝업 함수
+@st.dialog("👋 환영합니다! 자동 반편성 기능 안내")
+def show_help_popup():
+    st.markdown("""
+    이 프로그램은 선생님의 업무를 돕기 위해 다음과 같은 **지능형 알고리즘**이 탑재되어 있습니다.
+    
+    **1. ⚡ 분리희망학생 자동 분리**
+    > 서로 피하고 싶은 학생은 **1순위로** 다른 반에 배정합니다.
+    
+    **2. 👯‍♀️ 쌍생아 분반/합반 자동 배정**
+    > **합반 희망**은 무조건 같은 반으로, **분반 희망**은 무조건 다른 반으로 배정합니다.
+    
+    **3. 📛 동명이인 자동 분산**
+    > 이름이 같은 학생이 한 반에 배정되지 않도록 자동으로 흩어놓습니다.
+    
+    **4. ⚖️ 성별 및 인원 균형**
+    > 남학생과 여학생의 비율, 그리고 학급별 총 인원수를 최대한 균등하게 맞춥니다.
+    
+    **5. 📊 곤란도 점수별 자동 분산**
+    > 특정 반에 생활지도나 학습부진 학생이 몰리지 않도록 **점수 총합**을 고르게 분산합니다.
+    
+    **6. 🏫 출신 학급 안배**
+    > 이전 학년의 같은 반 친구들이 한 곳에 너무 많이 몰리지 않도록 적절히 섞어줍니다.
+    
+    **7. 📉 특수/통합 학급 정원 감축**
+    > 특수/완전통합 학생이 있는 반은 **실제 인원보다 2명 더 많은 것으로 계산**하여, 자연스럽게 학급 인원을 감축합니다.
+    """)
+
+# [NEW] 상단 타이틀 및 도움말 버튼
+col_title, col_help = st.columns([9, 1])
+with col_title:
+    st.title("🏫 반편성 프로그램 (v28.0)")
+with col_help:
+    if st.button("❓ 기능설명", key="help_btn"):
+        show_help_popup()
+
+# 최초 1회 팝업 실행
+if 'first_visit' not in st.session_state:
+    show_help_popup()
+    st.session_state['first_visit'] = False
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -229,7 +256,7 @@ def build_conflict_map(df):
 
     return conflict_pairs, separation_pairs, together_pairs, lookup
 
-# 관계 자동 동기화 (Auto-Sync)
+# 관계 자동 동기화
 def sync_relationships(df):
     for idx, row in df.iterrows():
         if pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "":
@@ -303,14 +330,14 @@ if uploaded_files:
 def run_assignment(df, class_names):
     df = df.copy()
     conflict_pairs, _, together_pairs, _ = build_conflict_map(df)
-    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}} for c in class_names}
+    # [NEW] 가상 인원(Virtual Count) 관리용 필드 추가
+    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}, 'virtual_cnt': 0} for c in class_names}
     
     conflict_counts = {id: 0 for id in df['Internal_ID']}
     for pair in conflict_pairs:
         for p in pair: conflict_counts[p] += 1
     df['conflict_degree'] = df['Internal_ID'].map(conflict_counts)
     
-    # 출신 반 정보 미리 매핑
     id_to_prev = df.set_index('Internal_ID')['현재반'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() else "").to_dict()
 
     transfer_mask = df['is_transfer'] == True
@@ -363,7 +390,8 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                 cost += (len(c_info['students']) * 10) 
             elif priority_mode == "REAL_COUNT_BALANCE":
                 real_cnt = len([sid for sid in c_info['students'] if sid not in transfer_ids])
-                cost += (real_cnt * 10000)
+                # [NEW] 가상 인원 수(virtual_cnt)를 사용하여 비용 계산 (특수학급 감축 효과)
+                cost += (c_info['virtual_cnt'] * 10000)
                 g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
                 cost += (g_cnt * 1000)
             elif priority_mode == "CUSHION_BALANCE":
@@ -371,7 +399,6 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                 g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
                 cost += (g_cnt * 500)
             
-            # 출신 반 분산 벌점
             if s_prev:
                 same_origin_cnt = 0
                 for exist_id in c_info['students']:
@@ -386,6 +413,13 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
         
     c = classes[best_class]
     c['students'].append(s_id); c['conflict_ids'].add(s_id)
+    
+    # [NEW] 특수/통합 학생 가중치 적용 (본인 1 + 유령 2 = 3명분)
+    if "특수" in s_reason or "통합" in s_reason:
+        c['virtual_cnt'] += 3
+    else:
+        c['virtual_cnt'] += 1
+
     if s_gender == '남': c['m'] += 1
     else: c['f'] += 1
     if not row['is_transfer']:
@@ -432,11 +466,9 @@ if 'assigned_data' in st.session_state:
         df.at[idx, 'display_icon'] = icon
 
     # 1. 시각화 보드
-    # [수정] 버튼 공간 확보를 위해 칼럼 비율 조정 (1.5 : 2.5 : 4.0 : 2.0)
     col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.5, 2.5, 4.0, 2.0], gap="small")
     with col_h_1: st.markdown("<div class='header-title-text'>👀 학급별 구성</div>", unsafe_allow_html=True)
     
-    # 엑셀 저장
     with col_h_2:
         output_assigned = io.BytesIO()
         export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
@@ -471,7 +503,6 @@ if 'assigned_data' in st.session_state:
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
 
         c_btn1, c_btn2 = st.columns(2)
-        # [수정] 강제 줄바꿈 및 특수 공백 적용
         c_btn1.download_button("📥 배정반\u00A0기준\n명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
         c_btn2.download_button("📥 현재반\u00A0기준\n명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
 
@@ -615,7 +646,6 @@ if 'assigned_data' in st.session_state:
                         st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
                         st.toast(f"👉 {s_std_name} 이동 완료!")
                     time.sleep(0.5); st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
