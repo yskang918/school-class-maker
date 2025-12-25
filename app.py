@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v24.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v25.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -60,6 +60,10 @@ st.markdown("""
         color: white !important;
         border: none !important;
         font-weight: 700 !important;
+        white-space: normal !important; /* 버튼 텍스트 줄바꿈 허용 */
+        height: auto !important; /* 높이 자동 조절 */
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
     }
 
     /* 드롭다운 및 입력창 테두리 강화 */
@@ -130,7 +134,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v24.0)")
+st.title("🏫 반편성 프로그램 (v25.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -224,7 +228,7 @@ def build_conflict_map(df):
 
     return conflict_pairs, separation_pairs, together_pairs, lookup
 
-# 관계 자동 동기화 (Auto-Sync)
+# [NEW] 관계 자동 동기화 (Auto-Sync)
 def sync_relationships(df):
     for idx, row in df.iterrows():
         if pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "":
@@ -472,8 +476,9 @@ if 'assigned_data' in st.session_state:
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
 
         c_btn1, c_btn2 = st.columns(2)
-        c_btn1.download_button("📥 배정반 기준 명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
-        c_btn2.download_button("📥 현재반 기준 명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
+        # [수정] 텍스트 줄바꿈 제어 (NBSP 사용)
+        c_btn1.download_button("📥 배정반\u00A0기준 명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
+        c_btn2.download_button("📥 현재반\u00A0기준 명단", output_current.getvalue(), "반편성_현재반기준.xlsx", type="primary", use_container_width=True)
 
     with col_h_3:
         st.markdown("""<div style="margin-top: 10px; font-weight: 600; font-size: 13px; color: #555; white-space: nowrap;">
@@ -615,6 +620,7 @@ if 'assigned_data' in st.session_state:
                         st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
                         st.toast(f"👉 {s_std_name} 이동 완료!")
                     time.sleep(0.5); st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
