@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v17.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v18.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -126,7 +126,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 반편성 프로그램 (v17.0)")
+st.title("🏫 반편성 프로그램 (v18.0)")
 
 # --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 1.5, 6.5])
@@ -220,6 +220,46 @@ def build_conflict_map(df):
 
     return conflict_pairs, separation_pairs, together_pairs, lookup
 
+# [NEW] 관계 자동 동기화 (Auto-Sync) 함수
+def sync_relationships(df):
+    # 1. 쌍생아 정보 동기화
+    for idx, row in df.iterrows():
+        if pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "":
+            target_name = row['쌍생아_이름']
+            target_class = str(int(float(row['쌍생아_반']))) if pd.notna(row['쌍생아_반']) else ""
+            
+            # 대상 찾기 (이름과 반으로 매칭)
+            targets = df[ (df['이름'] == target_name) & (df['현재반'].astype(str).replace(r'\.0$', '', regex=True) == target_class) ]
+            
+            if not targets.empty:
+                t_idx = targets.index[0]
+                # 대상의 쌍생아 정보가 비어있다면 채워넣기
+                if pd.isna(df.at[t_idx, '쌍생아_이름']) or str(df.at[t_idx, '쌍생아_이름']).strip() == "":
+                    df.at[t_idx, '쌍생아_이름'] = row['이름']
+                    df.at[t_idx, '쌍생아_반'] = row['현재반']
+                    df.at[t_idx, '쌍생아반편성'] = row['쌍생아반편성']
+                    # 비고란에도 표시
+                    if "쌍생아" not in str(df.at[t_idx, '비고']):
+                        df.at[t_idx, '비고'] = (str(df.at[t_idx, '비고']) + " 쌍생아").strip()
+
+    # 2. 분리희망 정보 동기화
+    for idx, row in df.iterrows():
+        if pd.notna(row['분리희망학생_이름']) and str(row['분리희망학생_이름']).strip() != "":
+            target_name = row['분리희망학생_이름']
+            target_class = str(int(float(row['분리희망학생_반']))) if pd.notna(row['분리희망학생_반']) else ""
+            
+            targets = df[ (df['이름'] == target_name) & (df['현재반'].astype(str).replace(r'\.0$', '', regex=True) == target_class) ]
+            
+            if not targets.empty:
+                t_idx = targets.index[0]
+                # 대상의 분리희망 정보가 비어있다면 채워넣기 (상호 분리)
+                if pd.isna(df.at[t_idx, '분리희망학생_이름']) or str(df.at[t_idx, '분리희망학생_이름']).strip() == "":
+                    df.at[t_idx, '분리희망학생_이름'] = row['이름']
+                    df.at[t_idx, '분리희망학생_반'] = row['현재반']
+                    df.at[t_idx, '분리희망학생_번호'] = row['번호']
+    
+    return df
+
 # --- 4. 파일 업로드 ---
 st.markdown("---")
 uploaded_files = st.file_uploader("엑셀 파일 선택 (여러 개 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
@@ -253,6 +293,9 @@ if uploaded_files:
             df['비고'] = df['비고'].fillna("") if '비고' in df.columns else ""
             df['is_transfer'] = df['비고'].str.contains('전출', na=False)
             df['Internal_ID'] = [f"ID_{i}" for i in range(len(df))]
+            
+            # [중요] 관계 자동 동기화 적용
+            df = sync_relationships(df)
             
             st.session_state['student_data'] = df
             st.session_state['uploaded_file_names'] = curr_files
