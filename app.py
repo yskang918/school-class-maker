@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v37.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v40.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -116,11 +116,16 @@ st.markdown("""
     .std-note { font-size: 10px; color: #D81B60; font-weight: 700; display: block; margin-top: 2px; line-height: 1.2; }
     
     /* 뱃지 스타일 */
-    .badge-in-card { display: inline-block; padding: 0px 3px; border-radius: 3px; font-size: 9px; font-weight: bold; margin-right: 2px; margin-bottom: 1px; vertical-align: middle; }
+    .badge-in-card { display: inline-block; padding: 0px 3px; border-radius: 3px; font-size: 9px; font-weight: bold; margin-right: 1px; margin-bottom: 1px; vertical-align: middle; }
     .badge-transfer { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; } 
     .badge-separation { background-color: #FFF9C4; color: #F57F17; border: 1px solid #FBC02D; } 
     .badge-twin { background-color: #F1F8E9 !important; color: #33691E !important; border: 1px solid #DCEDC8 !important; }
-    .badge-difficulty { background-color: #F5F5F5; color: #616161; border: 1px solid #E0E0E0; }
+    
+    /* [수정] 곤란도 뱃지 디자인 통일 (보라색 계열) */
+    .badge-difficulty { background-color: #F3E5F5; color: #7B1FA2; border: 1px solid #E1BEE7; }
+    
+    /* 점수 텍스트 스타일 */
+    .score-tag { font-size: 10px; font-weight: bold; color: #E65100; margin-left: 1px; margin-right: 3px; vertical-align: middle; }
 
     .header-title-text { font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap; }
     .swap-label { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 5px; }
@@ -154,7 +159,7 @@ def show_help_popup():
     > 해당 학급은 타 학급 대비 학생 수를 적게 배정하며, **특수/통합 학생끼리는 한 반에 배정되지 않도록 분산**합니다.
     """)
 
-st.title("🏫 반편성 프로그램 (v37.0)")
+st.title("🏫 반편성 프로그램 (v40.0)")
 
 # 최초 1회 팝업 실행
 if 'first_visit' not in st.session_state:
@@ -184,7 +189,7 @@ with col_down:
             ws = writer.sheets['명단작성']
             wb = writer.book
             
-            # [NEW] 굵은 오른쪽 테두리 포맷 정의
+            # [헤더 서식]
             header_format = wb.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center', 'fg_color': '#DCE6F1', 'border': 1})
             
             for i, col in enumerate(template_cols):
@@ -193,6 +198,7 @@ with col_down:
             
             val_int = {'validate': 'integer', 'criteria': '>', 'value': 0, 'error_title': '입력 오류', 'error_message': '숫자만 입력할 수 있습니다. (예: 1, 2, 3)'}
             
+            # 유효성 검사
             col_rules = {}
             for c in [0, 1, 5, 7, 10, 13, 14]: col_rules[c] = val_int.copy() 
             
@@ -222,6 +228,7 @@ with col_down:
                 if c not in col_rules: col_rules[c] = {'validate': 'any'}
                 col_rules[c]['input_title'] = '입력 안내'; col_rules[c]['input_message'] = msg
                 
+                # 점수 1~5 제한
                 if c in [5, 7]:
                     col_rules[c]['validate'] = 'integer'
                     col_rules[c]['criteria'] = 'between'
@@ -234,12 +241,11 @@ with col_down:
                 col_char = chr(65 + c) 
                 ws.data_validation(f"{col_char}2:{col_char}1000", rule)
             
-            # [NEW] C열(이름)에 굵은 오른쪽 테두리 적용 (시각적 분리)
-            thick_right_fmt = wb.add_format({'right': 5}) # 5 = Thick border
-            # 조건부 서식으로 전체 열에 적용 (데이터가 있는 범위)
+            # [굵은 테두리 적용] C열(이름)에 굵은 오른쪽 테두리 적용
+            thick_right_fmt = wb.add_format({'right': 5}) 
             ws.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt}) 
             
-            # 틀 고정: 1행(헤더)과 3열(이름까지)
+            # [틀 고정] 1행(헤더)과 3열(이름까지) 고정
             ws.freeze_panes(1, 3) 
             
         return output.getvalue()
@@ -536,11 +542,9 @@ if 'assigned_data' in st.session_state:
                     if current_map[others[0]] != my_cls: icon = "⚡"; break
         df.at[idx, 'display_icon'] = icon
 
-    # 1. 시각화 보드
     col_h_1, col_h_2, col_h_3, col_h_spacer = st.columns([1.5, 2.5, 4.0, 2.0], gap="small")
     with col_h_1: st.markdown("<div class='header-title-text'>👀 학급별 구성</div>", unsafe_allow_html=True)
     
-    # 엑셀 저장
     with col_h_2:
         output_assigned = io.BytesIO()
         export_cols = ['배정반', '번호', '이름', '성별', '현재반', '비고', '곤란도', '쌍생아_이름', '분리희망학생_이름']
@@ -555,13 +559,10 @@ if 'assigned_data' in st.session_state:
                 cls_df.to_excel(writer, index=False, sheet_name=f'{cls}반')
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_assigned.columns): sheet.set_column(i, i, 12)
-                # [NEW] 결과 파일 틀 고정 + 이름열 굵은 테두리
                 sheet.freeze_panes(1, 3) 
                 
-                # 시각적 분리를 위한 굵은 테두리 포맷
                 workbook = writer.book
                 thick_right_fmt = workbook.add_format({'right': 5}) 
-                # C열 전체에 굵은 오른쪽 테두리 적용
                 sheet.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt})
                 
         output_current = io.BytesIO()
@@ -580,7 +581,6 @@ if 'assigned_data' in st.session_state:
                 if not c_df.empty: c_df.to_excel(writer, index=False, sheet_name=f'{c_num}반')
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
-                # [NEW] 결과 파일 틀 고정 + 이름열 굵은 테두리
                 sheet.freeze_panes(1, 3)
                 
                 workbook = writer.book
@@ -660,11 +660,19 @@ if 'assigned_data' in st.session_state:
                         rem = rem.replace("쌍생아", "").strip()
 
                     note_badges = ""
-                    if note:
-                        reasons = [x.strip() for x in note.split(',') if x.strip()]
-                        for rea in reasons:
-                            note_badges += f"<span class='badge-in-card badge-difficulty'>{rea}</span>"
-                        if sc > 0: note_badges += f"<span style='font-size:10px; font-weight:bold; color:#E65100; margin-left:2px;'>({sc})</span>"
+                    
+                    reason1 = str(r.get('곤란도(1)', '')).strip()
+                    score1 = int(r.get('곤란도점수(1)', 0))
+                    reason2 = str(r.get('곤란도(2)', '')).strip()
+                    score2 = int(r.get('곤란도점수(2)', 0))
+                    
+                    if reason1 and reason1 != 'nan':
+                        note_badges += f"<span class='badge-in-card badge-difficulty'>{reason1}</span>"
+                        if score1 > 0: note_badges += f"<span class='score-tag'>({score1})</span>"
+                    
+                    if reason2 and reason2 != 'nan':
+                        note_badges += f"<span class='badge-in-card badge-difficulty'>{reason2}</span>"
+                        if score2 > 0: note_badges += f"<span class='score-tag'>({score2})</span>"
 
                     if rem: note_badges += f" <span style='font-size:10px; font-weight:bold; color:#D81B60;'>{rem}</span>"
                     
@@ -695,11 +703,19 @@ if 'assigned_data' in st.session_state:
                         rem = rem.replace("쌍생아", "").strip()
 
                     note_badges = ""
-                    if note:
-                        reasons = [x.strip() for x in note.split(',') if x.strip()]
-                        for rea in reasons:
-                            note_badges += f"<span class='badge-in-card badge-difficulty'>{rea}</span>"
-                        if sc > 0: note_badges += f"<span style='font-size:10px; font-weight:bold; color:#E65100; margin-left:2px;'>({sc})</span>"
+                    
+                    reason1 = str(r.get('곤란도(1)', '')).strip()
+                    score1 = int(r.get('곤란도점수(1)', 0))
+                    reason2 = str(r.get('곤란도(2)', '')).strip()
+                    score2 = int(r.get('곤란도점수(2)', 0))
+                    
+                    if reason1 and reason1 != 'nan':
+                        note_badges += f"<span class='badge-in-card badge-difficulty'>{reason1}</span>"
+                        if score1 > 0: note_badges += f"<span class='score-tag'>({score1})</span>"
+                    
+                    if reason2 and reason2 != 'nan':
+                        note_badges += f"<span class='badge-in-card badge-difficulty'>{reason2}</span>"
+                        if score2 > 0: note_badges += f"<span class='score-tag'>({score2})</span>"
 
                     if rem: note_badges += f" <span style='font-size:10px; font-weight:bold; color:#D81B60;'>{rem}</span>"
                     
@@ -707,50 +723,6 @@ if 'assigned_data' in st.session_state:
                     cards_html += f"""<div class="student-card {bg_class} {conflict}"><div class="std-name">{r['display_icon']} {r['이름']}{p_disp}</div><div style='margin-top:2px; line-height:1.2;'>{final_note}</div></div>"""
                 else: cards_html += """<div class="empty-card"></div>"""
             st.markdown(f"""<div class="student-grid">{cards_html}</div>""", unsafe_allow_html=True)
-
-    # 2. 1:1 학생 교환
-    st.divider()
-    st.subheader("🔀 1:1 학생 교환")
-    
-    with st.container(border=True):
-        if 'swap_source_class' not in st.session_state: st.session_state['swap_source_class'] = target_class_names[0]
-        if 'swap_target_class' not in st.session_state: st.session_state['swap_target_class'] = target_class_names[1] if len(target_class_names) > 1 else target_class_names[0]
-        c1, col_swap_left, col_swap_action, col_swap_right, c5 = st.columns([1, 2.5, 0.5, 2.5, 1])
-        with col_swap_left:
-            st.markdown("<div class='swap-label'>📤 보내는 반 (Source)</div>", unsafe_allow_html=True)
-            s_cls = st.selectbox("반 선택 (보냄)", target_class_names, key="s_cls_key", label_visibility="collapsed")
-            s_students_df = df[df['배정반'] == s_cls].sort_values(['이름'])
-            s_std_name = st.selectbox("학생 선택 (보냄)", s_students_df['이름'].tolist(), key="s_std_key", label_visibility="collapsed") if not s_students_df.empty else None
-            if s_std_name:
-                s_row = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)].iloc[0]
-                st.info(f"👤 {s_row['성별']} | 📊 {int(s_row['곤란도점수'])}점 | 📝 {s_row['곤란도']}")
-        with col_swap_right:
-            st.markdown("<div class='swap-label'>📥 받는 반 (Target)</div>", unsafe_allow_html=True)
-            t_cls = st.selectbox("반 선택 (받음)", target_class_names, index=1 if len(target_class_names)>1 else 0, key="t_cls_key", label_visibility="collapsed")
-            t_students_df = df[df['배정반'] == t_cls].sort_values(['이름'])
-            t_student_list = ["(선택 안 함 - 이동만 하기)"] + t_students_df['이름'].tolist()
-            t_std_name = st.selectbox("학생 선택 (받음/교환)", t_student_list, key="t_std_key", label_visibility="collapsed")
-            if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
-                t_row = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)].iloc[0]
-                st.info(f"👤 {t_row['성별']} | 📊 {int(t_row['곤란도점수'])}점 | 📝 {t_row['곤란도']}")
-            elif t_std_name == "(선택 안 함 - 이동만 하기)": st.success("👉 왼쪽 학생을 이 반으로 보냅니다.")
-        with col_swap_action:
-            st.write(""); st.write(""); st.write("") 
-            if st.button("🔄", type="primary", use_container_width=True, help="실행"):
-                if s_cls == t_cls: st.warning("같은 반입니다.")
-                elif not s_std_name: st.warning("학생을 선택하세요.")
-                else:
-                    s_id = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)]['Internal_ID'].values[0]
-                    if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
-                        t_id = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)]['Internal_ID'].values[0]
-                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
-                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == t_id, '배정반'] = s_cls
-                        st.toast(f"🔄 {s_std_name} ↔ {t_std_name} 교환 완료!")
-                    else:
-                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
-                        st.toast(f"👉 {s_std_name} 이동 완료!")
-                    time.sleep(0.5); st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
