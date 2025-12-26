@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v36.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v37.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -154,7 +154,7 @@ def show_help_popup():
     > 해당 학급은 타 학급 대비 학생 수를 적게 배정하며, **특수/통합 학생끼리는 한 반에 배정되지 않도록 분산**합니다.
     """)
 
-st.title("🏫 반편성 프로그램 (v36.0)")
+st.title("🏫 반편성 프로그램 (v37.0)")
 
 # 최초 1회 팝업 실행
 if 'first_visit' not in st.session_state:
@@ -183,7 +183,10 @@ with col_down:
             pd.DataFrame(columns=template_cols).to_excel(writer, index=False, sheet_name='명단작성')
             ws = writer.sheets['명단작성']
             wb = writer.book
+            
+            # [NEW] 굵은 오른쪽 테두리 포맷 정의
             header_format = wb.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center', 'fg_color': '#DCE6F1', 'border': 1})
+            
             for i, col in enumerate(template_cols):
                 ws.write(0, i, col, header_format)
                 ws.set_column(i, i, len(col) + 12)
@@ -230,6 +233,11 @@ with col_down:
             for c, rule in col_rules.items():
                 col_char = chr(65 + c) 
                 ws.data_validation(f"{col_char}2:{col_char}1000", rule)
+            
+            # [NEW] C열(이름)에 굵은 오른쪽 테두리 적용 (시각적 분리)
+            thick_right_fmt = wb.add_format({'right': 5}) # 5 = Thick border
+            # 조건부 서식으로 전체 열에 적용 (데이터가 있는 범위)
+            ws.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt}) 
             
             # 틀 고정: 1행(헤더)과 3열(이름까지)
             ws.freeze_panes(1, 3) 
@@ -428,13 +436,16 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
 
         for c_name, c_info in classes.items():
             cost = 0
+            # 1. 분리 희망 (절대 회피)
             if not my_enemies.isdisjoint(c_info['conflict_ids']): cost += float('inf')
             
+            # 특수/통합 학생 상호 배제 (절대 회피)
             if is_special and c_info['has_special']:
                 cost += 1000000
 
             if priority_mode == "SCORE_BALANCE":
                 cost += (c_info['score_sum'] * 1000)
+                # s_reason이 이제 콤마로 연결된 문자열이므로, reasons 카운트에 포함되는지 확인
                 for r_key in c_info['reasons']:
                     if r_key in s_reason: cost += 500
                 cost += (len(c_info['students']) * 10) 
@@ -448,6 +459,7 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                 g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
                 cost += (g_cnt * 500)
             
+            # 출신 반 분산 벌점
             if s_prev:
                 same_origin_cnt = 0
                 for exist_id in c_info['students']:
@@ -455,6 +467,7 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                         same_origin_cnt += 1
                 cost += (same_origin_cnt * 100)
 
+            # 전출생 분산 벌점
             if row['is_transfer']:
                 transfer_cnt = 0
                 for exist_id in c_info['students']:
@@ -542,8 +555,14 @@ if 'assigned_data' in st.session_state:
                 cls_df.to_excel(writer, index=False, sheet_name=f'{cls}반')
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_assigned.columns): sheet.set_column(i, i, 12)
-                # [NEW] 결과 파일 틀 고정
+                # [NEW] 결과 파일 틀 고정 + 이름열 굵은 테두리
                 sheet.freeze_panes(1, 3) 
+                
+                # 시각적 분리를 위한 굵은 테두리 포맷
+                workbook = writer.book
+                thick_right_fmt = workbook.add_format({'right': 5}) 
+                # C열 전체에 굵은 오른쪽 테두리 적용
+                sheet.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt})
                 
         output_current = io.BytesIO()
         df['current_class_int'] = pd.to_numeric(df['현재반'], errors='coerce').fillna(999).astype(int)
@@ -561,8 +580,12 @@ if 'assigned_data' in st.session_state:
                 if not c_df.empty: c_df.to_excel(writer, index=False, sheet_name=f'{c_num}반')
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
-                # [NEW] 결과 파일 틀 고정
+                # [NEW] 결과 파일 틀 고정 + 이름열 굵은 테두리
                 sheet.freeze_panes(1, 3)
+                
+                workbook = writer.book
+                thick_right_fmt = workbook.add_format({'right': 5})
+                sheet.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt})
 
         c_btn1, c_btn2 = st.columns(2)
         c_btn1.download_button("📥 배정반\u00A0기준\n명단", output_assigned.getvalue(), "반편성_배정반기준.xlsx", type="primary", use_container_width=True)
