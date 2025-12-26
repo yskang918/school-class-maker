@@ -29,102 +29,47 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v40.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v40.1", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
 <style>
     .stApp { background-color: #F4F6F9; }
-    
-    /* 한국어 단어 단위 줄바꿈 적용 */
     * { word-break: keep-all !important; }
+    .block-container { padding-top: 2rem; padding-bottom: 5rem; padding-left: 1rem; padding-right: 1rem; max-width: 100%; }
+    
+    button[kind="primary"] { background-color: #5DADEC !important; border-color: #5DADEC !important; color: white !important; }
+    div.stButton > button { background-color: #5DADEC !important; color: white !important; border: none !important; font-weight: 700 !important; }
+    div.stDownloadButton > button { background-color: #5DADEC !important; color: white !important; border: none !important; font-weight: 700 !important; white-space: pre-wrap !important; height: auto !important; padding-top: 12px !important; padding-bottom: 12px !important; line-height: 1.4 !important; }
+    div[data-baseweb="select"] > div, div[data-baseweb="input"] > div { border: 1px solid #B0BEC5 !important; border-radius: 4px !important; background-color: white !important; }
 
-    .block-container { 
-        padding-top: 2rem; 
-        padding-bottom: 5rem; 
-        padding-left: 1rem; 
-        padding-right: 1rem; 
-        max-width: 100%;
-    }
-
-    /* 버튼 색상 강제 고정 (파란색) */
-    button[kind="primary"] {
-        background-color: #5DADEC !important;
-        border-color: #5DADEC !important;
-        color: white !important;
-    }
-    div.stButton > button {
-        background-color: #5DADEC !important;
-        color: white !important;
-        border: none !important;
-        font-weight: 700 !important;
-    }
-    div.stDownloadButton > button {
-        background-color: #5DADEC !important;
-        color: white !important;
-        border: none !important;
-        font-weight: 700 !important;
-        white-space: pre-wrap !important;
-        height: auto !important;
-        padding-top: 12px !important;
-        padding-bottom: 12px !important;
-        line-height: 1.4 !important;
-    }
-
-    /* 드롭다운 및 입력창 테두리 강화 */
-    div[data-baseweb="select"] > div, div[data-baseweb="input"] > div {
-        border: 1px solid #B0BEC5 !important;
-        border-radius: 4px !important;
-        background-color: white !important;
-    }
-
-    /* 점수판 헤더 */
-    .class-header {
-        width: 100%; margin-bottom: 6px; background-color: white;
-        border-top: 4px solid #5DADEC; border-radius: 6px; padding: 6px 2px;
-        text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
+    .class-header { width: 100%; margin-bottom: 6px; background-color: white; border-top: 4px solid #5DADEC; border-radius: 6px; padding: 6px 2px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .class-title { font-size: 16px; font-weight: 800; color: #333; margin: 0; line-height: 1.2; white-space: nowrap; }
     .real-count-tag { font-size: 13px; color: #555; font-weight: 600; margin-left: 2px;}
     .score-text { font-size: 20px; font-weight: 900; color: #E65100; line-height: 1.0; margin: 3px 0; }
     .count-text { font-size: 11px; color: #333; font-weight: 700; margin: 2px 0 0 0; line-height: 1.2; white-space: nowrap; }
     .count-sub { font-size: 10px; color: #757575; font-weight: 600; display: block; margin-top: 1px; white-space: nowrap; }
     
-    /* 뱃지 */
     .badge-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 2px; margin-top: 3px; }
     .stat-badge { background-color: #F3E5F5; color: #7B1FA2; border: 1px solid #E1BEE7; border-radius: 4px; padding: 1px 3px; font-size: 9px; font-weight: bold; }
     .transfer-badge { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; border-radius: 4px; padding: 1px 3px; font-size: 9px; font-weight: bold; }
     
-    /* 학생 카드 */
     .student-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
-    .student-card {
-        width: 100%; border-radius: 4px; padding: 3px 1px;
-        text-align: center; box-shadow: 0 1px 1px rgba(0,0,0,0.05);
-        border: 1px solid rgba(0,0,0,0.05); line-height: 1.1; overflow: hidden;
-    }
+    .student-card { width: 100%; border-radius: 4px; padding: 3px 1px; text-align: center; box-shadow: 0 1px 1px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); line-height: 1.1; overflow: hidden; }
     .empty-card { width: 100%; height: 100%; min-height: 25px; background: transparent; border: none; }
     .bg-male { background-color: #E1F5FE; border-left: 3px solid #29B6F6; }
     .bg-female { background-color: #FCE4EC; border-left: 3px solid #EC407A; }
     .card-conflict { border: 2px solid #FF3D00 !important; background-color: #FFF3E0 !important; }
     
-    .std-name { 
-        font-size: 13px; font-weight: 800; color: #263238; margin: 0; 
-        display: flex; justify-content: center; align-items: center; gap: 1px;
-        padding-bottom: 1px; white-space: nowrap;
-    }
+    .std-name { font-size: 13px; font-weight: 800; color: #263238; margin: 0; display: flex; justify-content: center; align-items: center; gap: 1px; padding-bottom: 1px; white-space: nowrap; }
     .prev-class { font-size: 10px; color: #90A4AE; font-weight: 600; margin-left: 1px; } 
     .std-note { font-size: 10px; color: #D81B60; font-weight: 700; display: block; margin-top: 2px; line-height: 1.2; }
     
-    /* 뱃지 스타일 */
     .badge-in-card { display: inline-block; padding: 0px 3px; border-radius: 3px; font-size: 9px; font-weight: bold; margin-right: 1px; margin-bottom: 1px; vertical-align: middle; }
     .badge-transfer { background-color: #E3F2FD; color: #1565C0; border: 1px solid #90CAF9; } 
     .badge-separation { background-color: #FFF9C4; color: #F57F17; border: 1px solid #FBC02D; } 
     .badge-twin { background-color: #F1F8E9 !important; color: #33691E !important; border: 1px solid #DCEDC8 !important; }
-    
-    /* [수정] 곤란도 뱃지 디자인 통일 (보라색 계열) */
     .badge-difficulty { background-color: #F3E5F5; color: #7B1FA2; border: 1px solid #E1BEE7; }
-    
-    /* 점수 텍스트 스타일 */
     .score-tag { font-size: 10px; font-weight: bold; color: #E65100; margin-left: 1px; margin-right: 3px; vertical-align: middle; }
 
     .header-title-text { font-size: 24px; font-weight: 700; color: #333; margin-bottom: 0px; line-height: 1.5; white-space: nowrap; }
@@ -133,7 +78,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 팝업 함수
+# [NEW] 안전한 정수 변환 함수 (오류 방지용)
+def safe_int(val):
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return 0
+
 @st.dialog("👋 환영합니다! 자동 반편성 기능 안내")
 def show_help_popup():
     st.markdown("""
@@ -159,14 +110,12 @@ def show_help_popup():
     > 해당 학급은 타 학급 대비 학생 수를 적게 배정하며, **특수/통합 학생끼리는 한 반에 배정되지 않도록 분산**합니다.
     """)
 
-st.title("🏫 반편성 프로그램 (v40.0)")
+st.title("🏫 반편성 프로그램 (v40.1)")
 
-# 최초 1회 팝업 실행
 if 'first_visit' not in st.session_state:
     show_help_popup()
     st.session_state['first_visit'] = False
 
-# --- 2. 상단 컨트롤 패널 ---
 col_set, col_down, col_blank = st.columns([2, 2.5, 5.5])
 
 with col_set:
@@ -189,7 +138,6 @@ with col_down:
             ws = writer.sheets['명단작성']
             wb = writer.book
             
-            # [헤더 서식]
             header_format = wb.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center', 'fg_color': '#DCE6F1', 'border': 1})
             
             for i, col in enumerate(template_cols):
@@ -197,8 +145,6 @@ with col_down:
                 ws.set_column(i, i, len(col) + 12)
             
             val_int = {'validate': 'integer', 'criteria': '>', 'value': 0, 'error_title': '입력 오류', 'error_message': '숫자만 입력할 수 있습니다. (예: 1, 2, 3)'}
-            
-            # 유효성 검사
             col_rules = {}
             for c in [0, 1, 5, 7, 10, 13, 14]: col_rules[c] = val_int.copy() 
             
@@ -217,45 +163,33 @@ with col_down:
             col_rules[11] = val_list_twin
             
             msgs = {
-                0: "현재 학급을\n숫자로 입력하세요.", 
-                1: "학생 번호를\n숫자로 입력하세요.", 
-                3: "남/여 중\n하나를 입력하세요.",
-                5: "점수를 1~5까지\n숫자로 입력하세요.",
-                7: "점수를 1~5까지\n숫자로 입력하세요." 
+                0: "현재 학급을\n숫자로 입력하세요.", 1: "학생 번호를\n숫자로 입력하세요.", 3: "남/여 중\n하나를 입력하세요.",
+                5: "점수를 1~5까지\n숫자로 입력하세요.", 7: "점수를 1~5까지\n숫자로 입력하세요." 
             }
             
             for c, msg in msgs.items():
                 if c not in col_rules: col_rules[c] = {'validate': 'any'}
                 col_rules[c]['input_title'] = '입력 안내'; col_rules[c]['input_message'] = msg
                 
-                # 점수 1~5 제한
                 if c in [5, 7]:
-                    col_rules[c]['validate'] = 'integer'
-                    col_rules[c]['criteria'] = 'between'
-                    col_rules[c]['minimum'] = 1
-                    col_rules[c]['maximum'] = 5
-                    col_rules[c]['error_title'] = '입력 제한'
-                    col_rules[c]['error_message'] = '1에서 5 사이의 정수만 입력 가능합니다.'
+                    col_rules[c]['validate'] = 'integer'; col_rules[c]['criteria'] = 'between'
+                    col_rules[c]['minimum'] = 1; col_rules[c]['maximum'] = 5
+                    col_rules[c]['error_title'] = '입력 제한'; col_rules[c]['error_message'] = '1에서 5 사이의 정수만 입력 가능합니다.'
             
             for c, rule in col_rules.items():
                 col_char = chr(65 + c) 
                 ws.data_validation(f"{col_char}2:{col_char}1000", rule)
             
-            # [굵은 테두리 적용] C열(이름)에 굵은 오른쪽 테두리 적용
             thick_right_fmt = wb.add_format({'right': 5}) 
             ws.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt}) 
-            
-            # [틀 고정] 1행(헤더)과 3열(이름까지) 고정
             ws.freeze_panes(1, 3) 
             
         return output.getvalue()
     
-    st.write("")
-    st.write("")
+    st.write(""); st.write("")
     c_help, c_down = st.columns([0.8, 1.2])
     with c_help:
-        if st.button("❓ 기능설명", use_container_width=True):
-            show_help_popup()
+        if st.button("❓ 기능설명", use_container_width=True): show_help_popup()
     with c_down:
         st.download_button("📥 기초명단 양식", get_template_excel(), '반편성_양식.xlsx', type="primary", use_container_width=True)
 
@@ -272,7 +206,6 @@ def build_conflict_map(df):
         lookup[f"{r['이름']}_{r['현재반']}_{r['번호']}"] = r['Internal_ID']
         lookup[f"{r['이름']}_{r['현재반']}"] = r['Internal_ID']
 
-    # 분리희망
     for _, r in df.iterrows():
         my_id = r['Internal_ID']; t_name = r['분리희망학생_이름']
         if t_name:
@@ -283,7 +216,6 @@ def build_conflict_map(df):
                 pair = frozenset([my_id, target_id])
                 conflict_pairs.add(pair); separation_pairs.add(pair)
     
-    # 동명이인
     given_name_map = {} 
     for _, r in df.iterrows():
         g_name = get_given_name(r['이름'])
@@ -296,7 +228,6 @@ def build_conflict_map(df):
                 for j in range(i + 1, len(ids)):
                     conflict_pairs.add(frozenset([ids[i], ids[j]]))
 
-    # 쌍생아
     for _, r in df.iterrows():
         if pd.notna(r['쌍생아_이름']) and str(r['쌍생아_이름']).strip() != "":
             my_id = r['Internal_ID']
@@ -309,7 +240,6 @@ def build_conflict_map(df):
 
     return conflict_pairs, separation_pairs, together_pairs, lookup
 
-# 관계 자동 동기화
 def sync_relationships(df):
     for idx, row in df.iterrows():
         if pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "":
@@ -364,10 +294,13 @@ if uploaded_files:
             for c in num_cols: df[c] = df[c].apply(clean_number) if c in df.columns else ""
             for c in ['분리희망학생_이름', '쌍생아_이름', '쌍생아반편성']: df[c] = df[c].apply(clean_text) if c in df.columns else ""
             
-            # 2열 곤란도 및 점수 처리
             s1 = pd.to_numeric(df['곤란도점수(1)'], errors='coerce').fillna(0)
             s2 = pd.to_numeric(df['곤란도점수(2)'], errors='coerce').fillna(0)
             df['곤란도점수'] = s1 + s2
+            
+            # [수정] 원본 칼럼도 업데이트 (안전하게)
+            df['곤란도점수(1)'] = s1
+            df['곤란도점수(2)'] = s2
             
             r1 = df['곤란도(1)'].fillna('').astype(str).str.strip()
             r2 = df['곤란도(2)'].fillna('').astype(str).str.strip()
@@ -379,7 +312,6 @@ if uploaded_files:
             df['is_transfer'] = df['비고'].str.contains('전출', na=False)
             df['Internal_ID'] = [f"ID_{i}" for i in range(len(df))]
             
-            # 관계 자동 동기화
             df = sync_relationships(df)
             
             st.session_state['student_data'] = df
@@ -442,16 +374,12 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
 
         for c_name, c_info in classes.items():
             cost = 0
-            # 1. 분리 희망 (절대 회피)
             if not my_enemies.isdisjoint(c_info['conflict_ids']): cost += float('inf')
             
-            # 특수/통합 학생 상호 배제 (절대 회피)
-            if is_special and c_info['has_special']:
-                cost += 1000000
+            if is_special and c_info['has_special']: cost += 1000000
 
             if priority_mode == "SCORE_BALANCE":
                 cost += (c_info['score_sum'] * 1000)
-                # s_reason이 이제 콤마로 연결된 문자열이므로, reasons 카운트에 포함되는지 확인
                 for r_key in c_info['reasons']:
                     if r_key in s_reason: cost += 500
                 cost += (len(c_info['students']) * 10) 
@@ -465,7 +393,6 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                 g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
                 cost += (g_cnt * 500)
             
-            # 출신 반 분산 벌점
             if s_prev:
                 same_origin_cnt = 0
                 for exist_id in c_info['students']:
@@ -473,7 +400,6 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                         same_origin_cnt += 1
                 cost += (same_origin_cnt * 100)
 
-            # 전출생 분산 벌점
             if row['is_transfer']:
                 transfer_cnt = 0
                 for exist_id in c_info['students']:
@@ -560,7 +486,6 @@ if 'assigned_data' in st.session_state:
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_assigned.columns): sheet.set_column(i, i, 12)
                 sheet.freeze_panes(1, 3) 
-                
                 workbook = writer.book
                 thick_right_fmt = workbook.add_format({'right': 5}) 
                 sheet.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt})
@@ -582,7 +507,6 @@ if 'assigned_data' in st.session_state:
             for sheet in writer.sheets.values():
                 for i, col in enumerate(save_df_current_final.columns): sheet.set_column(i, i, 12)
                 sheet.freeze_panes(1, 3)
-                
                 workbook = writer.book
                 thick_right_fmt = workbook.add_format({'right': 5})
                 sheet.conditional_format('C1:C1000', {'type': 'no_errors', 'format': thick_right_fmt})
@@ -648,24 +572,13 @@ if 'assigned_data' in st.session_state:
                     if pd.notna(r['분리희망학생_이름']) and str(r['분리희망학생_이름']).strip() != "":
                         badges_str += "<span class='badge-in-card badge-separation'>분리희망</span>"
                     
-                    note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
-                    rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
-                    
-                    if "쌍생아" in rem:
-                        twin_text = "쌍생아"
-                        if pd.notna(r['쌍생아반편성']):
-                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
-                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
-                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
-                        rem = rem.replace("쌍생아", "").strip()
-
-                    note_badges = ""
-                    
+                    # [HOTFIX] 안전한 점수 가져오기 (safe_int 사용)
                     reason1 = str(r.get('곤란도(1)', '')).strip()
-                    score1 = int(r.get('곤란도점수(1)', 0))
+                    score1 = safe_int(r.get('곤란도점수(1)', 0))
                     reason2 = str(r.get('곤란도(2)', '')).strip()
-                    score2 = int(r.get('곤란도점수(2)', 0))
+                    score2 = safe_int(r.get('곤란도점수(2)', 0))
                     
+                    note_badges = ""
                     if reason1 and reason1 != 'nan':
                         note_badges += f"<span class='badge-in-card badge-difficulty'>{reason1}</span>"
                         if score1 > 0: note_badges += f"<span class='score-tag'>({score1})</span>"
@@ -673,6 +586,15 @@ if 'assigned_data' in st.session_state:
                     if reason2 and reason2 != 'nan':
                         note_badges += f"<span class='badge-in-card badge-difficulty'>{reason2}</span>"
                         if score2 > 0: note_badges += f"<span class='score-tag'>({score2})</span>"
+
+                    rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
+                    if "쌍생아" in rem:
+                        twin_text = "쌍생아"
+                        if pd.notna(r['쌍생아반편성']):
+                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
+                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
+                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
+                        rem = rem.replace("쌍생아", "").strip()
 
                     if rem: note_badges += f" <span style='font-size:10px; font-weight:bold; color:#D81B60;'>{rem}</span>"
                     
@@ -691,24 +613,13 @@ if 'assigned_data' in st.session_state:
                     if pd.notna(r['분리희망학생_이름']) and str(r['분리희망학생_이름']).strip() != "":
                         badges_str += "<span class='badge-in-card badge-separation'>분리희망</span>"
 
-                    note = r['곤란도'] if r['곤란도'] else ""; sc = int(r['곤란도점수'])
-                    rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
-                    
-                    if "쌍생아" in rem:
-                        twin_text = "쌍생아"
-                        if pd.notna(r['쌍생아반편성']):
-                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
-                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
-                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
-                        rem = rem.replace("쌍생아", "").strip()
-
-                    note_badges = ""
-                    
+                    # [HOTFIX] 안전한 점수 가져오기 (safe_int 사용)
                     reason1 = str(r.get('곤란도(1)', '')).strip()
-                    score1 = int(r.get('곤란도점수(1)', 0))
+                    score1 = safe_int(r.get('곤란도점수(1)', 0))
                     reason2 = str(r.get('곤란도(2)', '')).strip()
-                    score2 = int(r.get('곤란도점수(2)', 0))
+                    score2 = safe_int(r.get('곤란도점수(2)', 0))
                     
+                    note_badges = ""
                     if reason1 and reason1 != 'nan':
                         note_badges += f"<span class='badge-in-card badge-difficulty'>{reason1}</span>"
                         if score1 > 0: note_badges += f"<span class='score-tag'>({score1})</span>"
@@ -717,12 +628,65 @@ if 'assigned_data' in st.session_state:
                         note_badges += f"<span class='badge-in-card badge-difficulty'>{reason2}</span>"
                         if score2 > 0: note_badges += f"<span class='score-tag'>({score2})</span>"
 
+                    rem = str(r['비고']).replace("전출예정","").strip() if pd.notna(r['비고']) else ""
+                    if "쌍생아" in rem:
+                        twin_text = "쌍생아"
+                        if pd.notna(r['쌍생아반편성']):
+                            if r['쌍생아반편성'] == "분반희망": twin_text = "쌍생아(분반)"
+                            elif r['쌍생아반편성'] == "합반희망": twin_text = "쌍생아(합반)"
+                        badges_str += f"<span class='badge-in-card badge-twin'>{twin_text}</span>"
+                        rem = rem.replace("쌍생아", "").strip()
+
                     if rem: note_badges += f" <span style='font-size:10px; font-weight:bold; color:#D81B60;'>{rem}</span>"
                     
                     final_note = badges_str + note_badges
                     cards_html += f"""<div class="student-card {bg_class} {conflict}"><div class="std-name">{r['display_icon']} {r['이름']}{p_disp}</div><div style='margin-top:2px; line-height:1.2;'>{final_note}</div></div>"""
                 else: cards_html += """<div class="empty-card"></div>"""
             st.markdown(f"""<div class="student-grid">{cards_html}</div>""", unsafe_allow_html=True)
+
+    # 2. 1:1 학생 교환
+    st.divider()
+    st.subheader("🔀 1:1 학생 교환")
+    
+    with st.container(border=True):
+        if 'swap_source_class' not in st.session_state: st.session_state['swap_source_class'] = target_class_names[0]
+        if 'swap_target_class' not in st.session_state: st.session_state['swap_target_class'] = target_class_names[1] if len(target_class_names) > 1 else target_class_names[0]
+        c1, col_swap_left, col_swap_action, col_swap_right, c5 = st.columns([1, 2.5, 0.5, 2.5, 1])
+        with col_swap_left:
+            st.markdown("<div class='swap-label'>📤 보내는 반 (Source)</div>", unsafe_allow_html=True)
+            s_cls = st.selectbox("반 선택 (보냄)", target_class_names, key="s_cls_key", label_visibility="collapsed")
+            s_students_df = df[df['배정반'] == s_cls].sort_values(['이름'])
+            s_std_name = st.selectbox("학생 선택 (보냄)", s_students_df['이름'].tolist(), key="s_std_key", label_visibility="collapsed") if not s_students_df.empty else None
+            if s_std_name:
+                s_row = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)].iloc[0]
+                st.info(f"👤 {s_row['성별']} | 📊 {int(s_row['곤란도점수'])}점 | 📝 {s_row['곤란도']}")
+        with col_swap_right:
+            st.markdown("<div class='swap-label'>📥 받는 반 (Target)</div>", unsafe_allow_html=True)
+            t_cls = st.selectbox("반 선택 (받음)", target_class_names, index=1 if len(target_class_names)>1 else 0, key="t_cls_key", label_visibility="collapsed")
+            t_students_df = df[df['배정반'] == t_cls].sort_values(['이름'])
+            t_student_list = ["(선택 안 함 - 이동만 하기)"] + t_students_df['이름'].tolist()
+            t_std_name = st.selectbox("학생 선택 (받음/교환)", t_student_list, key="t_std_key", label_visibility="collapsed")
+            if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
+                t_row = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)].iloc[0]
+                st.info(f"👤 {t_row['성별']} | 📊 {int(t_row['곤란도점수'])}점 | 📝 {t_row['곤란도']}")
+            elif t_std_name == "(선택 안 함 - 이동만 하기)": st.success("👉 왼쪽 학생을 이 반으로 보냅니다.")
+        with col_swap_action:
+            st.write(""); st.write(""); st.write("") 
+            if st.button("🔄", type="primary", use_container_width=True, help="실행"):
+                if s_cls == t_cls: st.warning("같은 반입니다.")
+                elif not s_std_name: st.warning("학생을 선택하세요.")
+                else:
+                    s_id = df[(df['배정반'] == s_cls) & (df['이름'] == s_std_name)]['Internal_ID'].values[0]
+                    if t_std_name and t_std_name != "(선택 안 함 - 이동만 하기)":
+                        t_id = df[(df['배정반'] == t_cls) & (df['이름'] == t_std_name)]['Internal_ID'].values[0]
+                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
+                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == t_id, '배정반'] = s_cls
+                        st.toast(f"🔄 {s_std_name} ↔ {t_std_name} 교환 완료!")
+                    else:
+                        st.session_state['assigned_data'].loc[st.session_state['assigned_data']['Internal_ID'] == s_id, '배정반'] = t_cls
+                        st.toast(f"👉 {s_std_name} 이동 완료!")
+                    time.sleep(0.5); st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # 3. 이동 작업대
     st.write("")
