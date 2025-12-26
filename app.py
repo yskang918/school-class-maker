@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v32.0", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v34.0", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -154,7 +154,7 @@ def show_help_popup():
     > 해당 학급은 타 학급 대비 학생 수를 적게 배정하며, **특수/통합 학생끼리는 한 반에 배정되지 않도록 분산**합니다.
     """)
 
-st.title("🏫 반편성 프로그램 (v32.0)")
+st.title("🏫 반편성 프로그램 (v34.0)")
 
 # 최초 1회 팝업 실행
 if 'first_visit' not in st.session_state:
@@ -186,14 +186,30 @@ with col_down:
             header_format = wb.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center', 'fg_color': '#DCE6F1', 'border': 1})
             for i, col in enumerate(template_cols):
                 ws.write(0, i, col, header_format)
-                # [수정] 텍스트가 잘리지 않도록 열 너비 확장
                 ws.set_column(i, i, len(col) + 12)
-                
-            val_int = {'validate': 'integer', 'criteria': '>', 'value': 0, 'error_title': '입력 오류', 'error_message': '숫자만 입력할 수 있습니다. (예: 1, 2, 3)'}
             
-            # 유효성 검사 적용
+            # [NEW] 입력 규칙 분리
+            # 1. 일반 정수 (학급, 번호 등) : 0보다 커야 함
+            val_int_general = {'validate': 'integer', 'criteria': '>', 'value': 0, 'error_title': '입력 오류', 'error_message': '숫자만 입력할 수 있습니다. (예: 1, 2, 3)'}
+            
+            # 2. [수정] 곤란도 점수 정수 (1~5 제한)
+            val_int_score = {
+                'validate': 'integer', 
+                'criteria': 'between', 
+                'minimum': 1, 
+                'maximum': 5, 
+                'error_title': '입력 제한', 
+                'error_message': '1에서 5 사이의 정수만 입력 가능합니다.'
+            }
+            
             col_rules = {}
-            for c in [0, 1, 5, 7, 10, 13, 14]: col_rules[c] = val_int.copy() # 숫자 칼럼들
+            # 일반 정수 적용: 0(현재반), 1(번호), 10(쌍생아반), 13(분리반), 14(분리번호)
+            for c in [0, 1, 10, 13, 14]: 
+                col_rules[c] = val_int_general.copy()
+            
+            # [수정] 점수 제한 적용: 5(점수1), 7(점수2)
+            for c in [5, 7]:
+                col_rules[c] = val_int_score.copy()
             
             val_list_reason = {
                 'validate': 'list', 
@@ -209,13 +225,12 @@ with col_down:
             val_list_twin = {'validate': 'list', 'source': ["분반희망", "합반희망"], 'error_message': '목록에 있는 값만 선택해주세요.'}
             col_rules[11] = val_list_twin
             
-            # [수정] 곤란도점수(2)에도 안내 메시지 추가
             msgs = {
                 0: "현재 학급을\n숫자로 입력하세요.", 
                 1: "학생 번호를\n숫자로 입력하세요.", 
                 3: "남/여 중\n하나를 입력하세요.",
-                5: "점수를\n숫자로 입력하세요.", # 곤란도점수(1)
-                7: "점수를\n숫자로 입력하세요."  # 곤란도점수(2)
+                5: "점수를 1~5까지\n숫자로 입력하세요.", # 곤란도점수(1)
+                7: "점수를 1~5까지\n숫자로 입력하세요."  # 곤란도점수(2)
             }
             
             for c, msg in msgs.items():
@@ -231,7 +246,6 @@ with col_down:
     
     st.write("")
     st.write("")
-    # 버튼 배치: 도움말 | 양식다운로드
     c_help, c_down = st.columns([0.8, 1.2])
     with c_help:
         if st.button("❓ 기능설명", use_container_width=True):
@@ -422,14 +436,15 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
 
         for c_name, c_info in classes.items():
             cost = 0
+            # 1. 분리 희망 (절대 회피)
             if not my_enemies.isdisjoint(c_info['conflict_ids']): cost += float('inf')
             
+            # 특수/통합 학생 상호 배제 (절대 회피)
             if is_special and c_info['has_special']:
                 cost += 1000000
 
             if priority_mode == "SCORE_BALANCE":
                 cost += (c_info['score_sum'] * 1000)
-                # s_reason이 이제 콤마로 연결된 문자열이므로, reasons 카운트에 포함되는지 확인
                 for r_key in c_info['reasons']:
                     if r_key in s_reason: cost += 500
                 cost += (len(c_info['students']) * 10) 
@@ -443,6 +458,7 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                 g_cnt = c_info['m'] if s_gender == '남' else c_info['f']
                 cost += (g_cnt * 500)
             
+            # 출신 반 분산 벌점
             if s_prev:
                 same_origin_cnt = 0
                 for exist_id in c_info['students']:
@@ -450,6 +466,7 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
                         same_origin_cnt += 1
                 cost += (same_origin_cnt * 100)
 
+            # 전출생 분산 벌점
             if row['is_transfer']:
                 transfer_cnt = 0
                 for exist_id in c_info['students']:
