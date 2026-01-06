@@ -29,7 +29,7 @@ except ImportError:
     st.stop()
 
 # 사이드바 없이 넓은 화면 사용
-st.set_page_config(page_title="반편성 프로그램 v40.1", layout="wide", initial_sidebar_state="collapsed") 
+st.set_page_config(page_title="반편성 프로그램 v40.2 (Twin-Fix)", layout="wide", initial_sidebar_state="collapsed") 
 
 # CSS: 디자인 디테일 설정
 st.markdown("""
@@ -90,27 +90,28 @@ def show_help_popup():
     st.markdown("""
     **1. ⚡ 분리희망학생 자동 반편성**
     > 서로 피하고 싶은 학생은 **1순위로** 다른 반에 배정합니다.
-    
+    <br>
     **2. 👯‍♀️ 쌍생아 분반/합반 자동 반편성**
     > 합반 희망은 무조건 같은 반으로, 분반 희망은 무조건 다른 반으로 배정합니다.
-    
+    > **(NEW) 쌍생아들이 특정 반에 몰리지 않도록 최대한 여러 반으로 분산합니다.**
+    <br>
     **3. 📛 동명이인 자동 반편성**
     > 이름이 같은 학생이 한 반에 배정되지 않도록 자동으로 흩어놓습니다.
-    
+    <br>
     **4. ⚖️ 성별 및 인원 균형**
     > 남학생과 여학생의 비율, 그리고 학급별 총 인원수를 최대한 균등하게 맞춥니다.
-    
+    <br>
     **5. 📊 곤란도 점수별 자동 반편성**
     > 특정 반에 생활지도나 학습부진 학생이 몰리지 않도록 **점수 총합**을 고르게 분산합니다.
-    
+    <br>
     **6. 🏫 출신 학급 안배**
     > 이전 학년의 같은 반 친구들이 한 곳에 너무 많이 몰리지 않도록 적절히 섞어줍니다.
-    
+    <br>
     **7. 📉 특수/통합 학급 정원 감축**
     > 해당 학급은 타 학급 대비 학생 수를 적게 배정하며, **특수/통합 학생끼리는 한 반에 배정되지 않도록 분산**합니다.
     """)
 
-st.title("🏫 반편성 프로그램 (v40.1)")
+st.title("🏫 반편성 프로그램 (v40.2)")
 
 if 'first_visit' not in st.session_state:
     show_help_popup()
@@ -322,7 +323,9 @@ if uploaded_files:
 def run_assignment(df, class_names):
     df = df.copy()
     conflict_pairs, _, together_pairs, _ = build_conflict_map(df)
-    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}, 'virtual_cnt': 0, 'has_special': False} for c in class_names}
+    
+    # [수정] twin_cnt(이 반에 배정된 쌍생아 수) 추적 변수 추가
+    classes = {c: {'students': [], 'score_sum': 0, 'm': 0, 'f': 0, 'conflict_ids': set(), 'reasons': {}, 'virtual_cnt': 0, 'has_special': False, 'twin_cnt': 0} for c in class_names}
     
     conflict_counts = {id: 0 for id in df['Internal_ID']}
     for pair in conflict_pairs:
@@ -353,6 +356,11 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
     s_prev = id_to_prev.get(s_id, "")
     
     is_special = "특수" in s_reason or "통합" in s_reason
+    
+    # [NEW] 이 학생이 쌍생아인지 확인
+    rem_text = str(row['비고'])
+    has_twin_info = (pd.notna(row['쌍생아_이름']) and str(row['쌍생아_이름']).strip() != "")
+    is_twin = "쌍생아" in rem_text or has_twin_info
 
     forced_class = None
     for pair in together_pairs:
@@ -377,6 +385,10 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
             if not my_enemies.isdisjoint(c_info['conflict_ids']): cost += float('inf')
             
             if is_special and c_info['has_special']: cost += 1000000
+            
+            # [NEW] 쌍생아 분산 배정 로직 (이미 쌍생아가 배정된 반은 강력한 페널티 부여)
+            if is_twin:
+                cost += (c_info['twin_cnt'] * 150000)
 
             if priority_mode == "SCORE_BALANCE":
                 cost += (c_info['score_sum'] * 1000)
@@ -414,6 +426,10 @@ def assign_with_priority(row, classes, conflict_pairs, together_pairs, priority_
         
     c = classes[best_class]
     c['students'].append(s_id); c['conflict_ids'].add(s_id)
+    
+    # [NEW] 쌍생아 카운트 증가
+    if is_twin:
+        c['twin_cnt'] += 1
     
     if is_special:
         c['virtual_cnt'] += 2
